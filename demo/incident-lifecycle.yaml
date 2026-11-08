@@ -1,0 +1,60 @@
+# Seed the empty mock stack first: node demo/seed.mjs
+name: incident-lifecycle
+caption:
+  lang: en
+  position: { admin: bottom }
+screens:
+  - id: admin
+    # An empty page of the same origin, so that the first frame is not the UI before the language is set.
+    url: http://127.0.0.1:18080/health
+    size: [1200, 900]
+state:
+  localStorage: ["noti-mesh-*"]
+timing: { stepTimeoutMs: 30000, pointerSteps: 16, pointerStepMs: 30 }
+steps:
+  - script: scripts/prepare.js
+  - goto: { screen: admin, url: "http://127.0.0.1:18080/admin" }
+    expect: { screen: admin, selector: ".incident-title" }
+  - script: scripts/hide-banner.js
+  - caption: "Incidents and messages from every source, in one place"
+  - click: { screen: admin, target: "[data-view=incidents]" }
+  - wait: 2200
+  - caption: "A P1 alert from monitoring opens an incident"
+  - script: scripts/alert.js
+  - click: { screen: admin, target: "#refresh" }
+  - wait: 700
+  - script: scripts/snap.js
+  - wait: 2200
+  - caption: "Every event and delivery stays with the incident"
+  - click: { screen: admin, target: "#incident-view tbody tr:first-child .incident-title" }
+    expect: { screen: admin, selector: "#assign-form" }
+    retry: 2
+  - script: scripts/caption-on-top.js
+  - wait: 1200
+  - script: scripts/show-deliveries.js
+  - wait: 2800
+  - script: scripts/detail-top.js
+  - wait: 700
+  - caption: "Assign an owner to stop the escalation"
+  - wait: 600
+  - script: scripts/pick-owner.js
+  - click: { screen: admin, target: "#assign-submit" }
+    expect: { screen: admin, selector: ".detail-sub .state.acknowledged" }
+    retry: 2
+  - script: scripts/caption-on-top.js
+  - wait: 1800
+  - click: { screen: admin, target: "#detail-close" }
+  - wait: 1600
+  - caption: "A recovery event resolves it"
+  - script: scripts/recover.js
+  - click: { screen: admin, target: "#refresh" }
+  - wait: 700
+  - script: scripts/snap.js
+  - wait: 2400
+  - caption: "Dark mode, and Korean or English"
+  - script: scripts/dark.js
+  - wait: 1800
+  - script: scripts/korean.js
+  - wait: 900
+  - script: scripts/snap.js
+  - wait: 2200

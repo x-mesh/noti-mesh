@@ -4,6 +4,8 @@ noti-mesh is a self-hosted notification gateway for operations teams. Services, 
 
 noti-mesh keeps each event, acknowledgment, escalation, and delivery attempt in PostgreSQL. The admin web UI shows incidents, deliveries, maintenance silences, post-incident drafts, and delivery evidence. The server is written in Rust.
 
+![An alert opens a P1 incident in the admin UI, an owner takes it, and a recovery event resolves it](docs/media/incident-lifecycle.gif)
+
 Inputs:
 
 - The noti-mesh API: `POST /v1/events` for incidents and `POST /v1/messages` for ordinary messages.
