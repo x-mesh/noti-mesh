@@ -2,6 +2,9 @@ use serde::Deserialize;
 use std::collections::HashMap;
 #[derive(Clone, Deserialize)]
 pub struct Config {
+    /// Language of the text that the server writes: Slack messages, reports, and CSV headers.
+    #[serde(default)]
+    pub language: Language,
     #[serde(default)]
     pub timing: Timing,
     #[serde(default)]
@@ -17,6 +20,21 @@ pub struct Config {
     pub ai: Ai,
     #[serde(default)]
     pub channels: Channels,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Language {
+    #[default]
+    Ko,
+    En,
+}
+impl Language {
+    pub fn pick<'a>(self, ko: &'a str, en: &'a str) -> &'a str {
+        match self {
+            Language::Ko => ko,
+            Language::En => en,
+        }
+    }
 }
 #[derive(Clone, Deserialize)]
 pub struct Admin {

@@ -84,7 +84,9 @@ pub async fn action_payload(app: Arc<App>, payload: Value) -> Result<StatusCode,
     let result = handle_action(&app, &payload).await;
     let notice = match &result {
         Ok(notice) => notice.clone(),
-        Err((status, reason)) if status.is_client_error() => rejection_notice(reason),
+        Err((status, reason)) if status.is_client_error() => {
+            rejection_notice(app.config.language, reason)
+        }
         Err(_) => None,
     };
     if let Some(text) = notice
@@ -101,15 +103,20 @@ pub async fn action_payload(app: Arc<App>, payload: Value) -> Result<StatusCode,
     }
     result.map(|_| StatusCode::OK)
 }
-fn rejection_notice(reason: &str) -> Option<String> {
+fn rejection_notice(language: crate::policy::Language, reason: &str) -> Option<String> {
     let text = match reason {
-        "unknown actor" => {
-            "noti-mesh에 등록되지 않은 Slack 계정이라 담당할 수 없습니다. 관리자에게 담당 그룹 등록을 요청하세요."
-        }
-        "not a responsible group member" => "이 사건의 담당 그룹에 속하지 않아 담당할 수 없습니다.",
-        "unknown message" | "incident missing" => {
-            "noti-mesh 기록에서 이 메시지를 찾지 못해 처리하지 못했습니다."
-        }
+        "unknown actor" => language.pick(
+            "noti-mesh에 등록되지 않은 Slack 계정이라 담당할 수 없습니다. 관리자에게 담당 그룹 등록을 요청하세요.",
+            "This Slack account is not registered in noti-mesh, so it cannot take ownership. Ask an administrator to add it to a responsible group.",
+        ),
+        "not a responsible group member" => language.pick(
+            "이 사건의 담당 그룹에 속하지 않아 담당할 수 없습니다.",
+            "You are not in the responsible group of this incident, so you cannot take ownership.",
+        ),
+        "unknown message" | "incident missing" => language.pick(
+            "noti-mesh 기록에서 이 메시지를 찾지 못해 처리하지 못했습니다.",
+            "noti-mesh could not find this message in its records.",
+        ),
         _ => return None,
     };
     Some(text.to_owned())
@@ -231,10 +238,24 @@ async fn handle_action(app: &App, payload: &Value) -> Result<Option<String>, Fai
     let owner: Option<String> = row.get("owner");
     let notice = match state.as_str() {
         _ if inserted == 0 => None,
-        "resolved" => Some("이미 해결된 사건입니다.".to_owned()),
-        "acknowledged" => owner
-            .filter(|owner| owner != actor)
-            .map(|owner| format!("이미 <@{owner}> 님이 담당하고 있습니다.")),
+        "resolved" => Some(
+            app.config
+                .language
+                .pick(
+                    "이미 해결된 사건입니다.",
+                    "This incident is already resolved.",
+                )
+                .to_owned(),
+        ),
+        "acknowledged" => owner.filter(|owner| owner != actor).map(|owner| {
+            app.config
+                .language
+                .pick(
+                    "이미 <@{owner}> 님이 담당하고 있습니다.",
+                    "<@{owner}> already owns this incident.",
+                )
+                .replace("{owner}", &owner)
+        }),
         _ => None,
     };
     if inserted > 0 && state == "open" {
@@ -417,14 +438,14 @@ async fn deliver(app: &App) -> Result<bool, Error> {
             .replace('<', "&lt;")
             .replace('>', "&gt;")
             .replace('|', "%7C");
-        blocks.push(json!({"type":"context","elements":[{"type":"mrkdwn","text":format!("<{target}|원본 보기>")}]}));
+        blocks.push(json!({"type":"context","elements":[{"type":"mrkdwn","text":format!("<{target}|{}>", app.config.language.pick("원본 보기", "Open source"))}]}));
     }
     if !mentions.is_empty() {
         blocks.push(json!({"type":"section","text":{"type":"mrkdwn","text":mentions}}));
     }
     if state == "open" {
-        blocks.push(json!({"type":"actions","elements":[{"type":"button","style":"primary","text":{"type":"plain_text","text":"담당하기"},"action_id":"ack","value":incident_id},{"type":"button","text":{"type":"plain_text","text":"확인만 하기"},"action_id":"confirm","value":incident_id}]}));
-        blocks.push(button_guide());
+        blocks.push(json!({"type":"actions","elements":[{"type":"button","style":"primary","text":{"type":"plain_text","text":app.config.language.pick("담당하기","Take ownership")},"action_id":"ack","value":incident_id},{"type":"button","text":{"type":"plain_text","text":app.config.language.pick("확인만 하기","Confirm only")},"action_id":"confirm","value":incident_id}]}));
+        blocks.push(button_guide(app.config.language));
     }
     let mut body = json!({"channel":channel,"text":text,"blocks":blocks,"parse":"none"});
     if update {
@@ -528,8 +549,8 @@ async fn summary_request(app: &App, input: &Value) -> Result<String, Error> {
     Ok(text)
 }
 
-fn button_guide() -> Value {
-    json!({"type":"context","elements":[{"type":"plain_text","text":"재알림을 멈추려면 담당하기를 누르세요. 확인만 하기를 누르면 확인 기록만 남고 재알림은 계속됩니다."}]})
+fn button_guide(language: crate::policy::Language) -> Value {
+    json!({"type":"context","elements":[{"type":"plain_text","text":language.pick("재알림을 멈추려면 담당하기를 누르세요. 확인만 하기를 누르면 확인 기록만 남고 재알림은 계속됩니다.","Select Take ownership to stop escalation. Confirm only records a confirmation, and escalation continues.")}]})
 }
 async fn digest(app: &App) -> Result<bool, Error> {
     let lease = uuid::Uuid::new_v4().to_string();
@@ -545,7 +566,7 @@ async fn digest(app: &App) -> Result<bool, Error> {
         .ok_or("digest target group no longer exists")?;
     let channel = &target_group.channel;
     let mut blocks = vec![
-        json!({"type":"section","text":{"type":"plain_text","text":"noti-mesh 운영 사건 요약"}}),
+        json!({"type":"section","text":{"type":"plain_text","text":app.config.language.pick("noti-mesh 운영 사건 요약","noti-mesh incident summary")}}),
     ];
     let mut seen = std::collections::HashSet::new();
     let mut any_open = false;
@@ -561,16 +582,16 @@ async fn digest(app: &App) -> Result<bool, Error> {
         blocks.push(json!({"type":"section","block_id":id,"text":{"type":"plain_text","text":format!("P{} {} / {} · {} · {} events",incident.get::<i16,_>("severity"),incident.get::<String,_>("service"),incident.get::<String,_>("environment"),incident.get::<String,_>("state"),incident.get::<i64,_>("count"))}}));
         let mut buttons = Vec::new();
         if incident.get::<String, _>("state") == "open" {
-            buttons.push(json!({"type":"button","style":"primary","text":{"type":"plain_text","text":"담당하기"},"action_id":"ack","value":id}));
+            buttons.push(json!({"type":"button","style":"primary","text":{"type":"plain_text","text":app.config.language.pick("담당하기","Take ownership")},"action_id":"ack","value":id}));
             any_open = true;
         }
-        buttons.push(json!({"type":"button","text":{"type":"plain_text","text":"확인만 하기"},"action_id":"confirm","value":id}));
+        buttons.push(json!({"type":"button","text":{"type":"plain_text","text":app.config.language.pick("확인만 하기","Confirm only")},"action_id":"confirm","value":id}));
         blocks.push(json!({"type":"actions","elements":buttons}));
     }
     if any_open {
-        blocks.push(button_guide());
+        blocks.push(button_guide(app.config.language));
     }
-    let response=app.http.post(format!("{}/chat.postMessage",app.config.api_url)).bearer_auth(&app.slack_token).json(&json!({"channel":channel,"text":"noti-mesh 운영 사건 요약","blocks":blocks,"parse":"none"})).send().await;
+    let response=app.http.post(format!("{}/chat.postMessage",app.config.api_url)).bearer_auth(&app.slack_token).json(&json!({"channel":channel,"text":app.config.language.pick("noti-mesh 운영 사건 요약","noti-mesh incident summary"),"blocks":blocks,"parse":"none"})).send().await;
     let (success, delay, error, message_ts, permanent) =
         match crate::slack::response(response, false).await {
             Ok(value) => (

@@ -1,3 +1,5 @@
+# Language of Slack messages, post-incident drafts, and CSV headers: "ko" or "en".
+language = "ko"
 workspace = "REPLACE_SLACK_WORKSPACE_ID"
 signing_secret_env = "SLACK_SIGNING_SECRET"
 api_url = "https://slack.com/api"

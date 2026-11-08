@@ -262,8 +262,12 @@ pub(crate) async fn tick(app: &App) -> Result<bool, Box<dyn std::error::Error + 
             incident.get::<i16, _>("severity"),
             incident.get::<String, _>("incident_key")
         );
+        let (state_label, events_label, unit) = match app.config.language {
+            crate::policy::Language::Ko => ("상태", "이벤트", "건"),
+            crate::policy::Language::En => ("State", "Events", ""),
+        };
         let body = format!(
-            "{} / {}\n상태: {}\n이벤트: {}건\n{}\n{}",
+            "{} / {}\n{state_label}: {}\n{events_label}: {}{unit}\n{}\n{}",
             incident.get::<String, _>("service"),
             incident.get::<String, _>("environment"),
             incident.get::<String, _>("state"),

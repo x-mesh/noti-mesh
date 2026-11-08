@@ -37,6 +37,8 @@ pub async fn incident(
         .fetch_all(&app.db)
         .await
         .map_err(db_error)?;
+    let language = app.config.language;
+    let w = |ko: &'static str, en: &'static str| language.pick(ko, en);
     let mut timeline: Vec<(DateTime<Utc>, String)> = Vec::new();
     let mut first: Option<DateTime<Utc>> = None;
     let mut resolved: Option<DateTime<Utc>> = None;
@@ -57,12 +59,20 @@ pub async fn incident(
         }
         source_url = source_url.or_else(|| payload["source_url"].as_str().map(str::to_owned));
         let mut line = format!(
-            "{} 이벤트 수신, P{}",
-            if recovered { "해결" } else { "발생" },
+            "{}, P{}",
+            if recovered {
+                w("해결 이벤트 수신", "Recovery event received")
+            } else {
+                w("발생 이벤트 수신", "Event received")
+            },
             payload["severity"]
         );
         if let Some(occurred) = occurred {
-            line.push_str(&format!(", 발생 시각 {}", time(occurred, zone)));
+            line.push_str(&format!(
+                ", {} {}",
+                w("발생 시각", "occurred at"),
+                time(occurred, zone)
+            ));
         }
         if let Some(text) = payload["summary"].as_str() {
             line.push_str(&format!(": {}", one_line(text)));
@@ -77,14 +87,16 @@ pub async fn incident(
     let mut first_post: Option<DateTime<Utc>> = None;
     for row in &deliveries {
         let kind = match row.get::<String, _>("kind").as_str() {
-            "update" => "알림",
-            "reopen" => "우선순위 상승 알림",
-            "escalation" => "재알림",
-            "summary" => "요약",
-            _ => "메시지",
+            "update" => w("알림", "alert"),
+            "reopen" => w("우선순위 상승 알림", "priority rise alert"),
+            "escalation" => w("재알림", "escalation"),
+            "summary" => w("요약", "summary"),
+            _ => w("메시지", "message"),
         };
         let target: Option<String> = row.get("target");
-        let target = target.map(|t| format!(" ({t} 그룹)")).unwrap_or_default();
+        let target = target
+            .map(|t| format!(" ({})", w("{t} 그룹", "group {t}").replace("{t}", &t)))
+            .unwrap_or_default();
         if let Some(at) = row
             .get::<Option<i64>, _>("failed_at")
             .and_then(DateTime::from_timestamp_millis)
@@ -92,7 +104,11 @@ pub async fn incident(
             let error: Option<String> = row.get("last_error");
             timeline.push((
                 at,
-                format!("Slack {kind} 실패{target}: {}", error.unwrap_or_default()),
+                format!(
+                    "Slack {kind} {}{target}: {}",
+                    w("실패", "failed"),
+                    error.unwrap_or_default()
+                ),
             ));
         } else if row
             .get::<Option<String>, _>("provider_message_ts")
@@ -100,7 +116,7 @@ pub async fn incident(
         {
             let at = at(row, "sent_at");
             first_post = Some(first_post.map_or(at, |seen| seen.min(at)));
-            timeline.push((at, format!("Slack {kind} 게시{target}")));
+            timeline.push((at, format!("Slack {kind} {}{target}", w("게시", "posted"))));
         }
     }
     let channels = sqlx::query("SELECT channel,state,(extract(epoch FROM sent_at)*1000)::bigint AS sent_at,(extract(epoch FROM due_at)*1000)::bigint AS due_at,last_error FROM channel_deliveries WHERE incident_id=$1 AND state IN ('sent','failed')")
@@ -110,19 +126,26 @@ pub async fn incident(
         .map_err(db_error)?;
     for row in &channels {
         let channel = match row.get::<String, _>("channel").as_str() {
-            "email" => "메일",
+            "email" => w("메일", "Email"),
             _ => "Telegram",
         };
         if row.get::<String, _>("state") == "sent" {
             // Provider acceptance does not prove that a person read it.
-            timeline.push((at(row, "sent_at"), format!("{channel} 발송 접수")));
+            timeline.push((
+                at(row, "sent_at"),
+                format!("{channel} {}", w("발송 접수", "accepted by the provider")),
+            ));
         } else {
             let error: Option<String> = row.get("last_error");
             // Failed deliveries keep no failure time; the last scheduled attempt is the closest record.
             timeline.push((
                 at(row, "due_at"),
                 format!(
-                    "{channel} 발송 실패(마지막 시도 예정 시각): {}",
+                    "{channel} {}: {}",
+                    w(
+                        "발송 실패(마지막 시도 예정 시각)",
+                        "delivery failed (last scheduled attempt)"
+                    ),
                     error.unwrap_or_default()
                 ),
             ));
@@ -145,9 +168,12 @@ pub async fn incident(
         let by = initiator
             .map(|who| person(&app, who))
             .filter(|who| *who != actor)
-            .map(|who| format!(" (지정: {who})"))
+            .map(|who| format!(" ({} {who})", w("지정:", "assigned by")))
             .unwrap_or_default();
-        timeline.push((at, format!("담당 지정: {actor}{by}")));
+        timeline.push((
+            at,
+            format!("{} {actor}{by}", w("담당 지정:", "Owner assigned:")),
+        ));
     }
     let confirmations = sqlx::query("SELECT coalesce(actor_name,actor) AS who,(extract(epoch FROM created_at)*1000)::bigint AS created_at FROM confirmations WHERE incident_id=$1")
         .bind(&id)
@@ -157,7 +183,11 @@ pub async fn incident(
     for row in &confirmations {
         timeline.push((
             at(row, "created_at"),
-            format!("확인: {}", person(&app, row.get("who"))),
+            format!(
+                "{} {}",
+                w("확인:", "Confirmed by"),
+                person(&app, row.get("who"))
+            ),
         ));
     }
     timeline.sort_by_key(|(at, _)| *at);
@@ -166,55 +196,92 @@ pub async fn incident(
     let title = summary.clone().unwrap_or_else(|| key.clone());
     let since = |at: DateTime<Utc>| {
         first.map_or(String::new(), |start| {
-            format!(", 발생 후 {}", duration(at - start))
+            format!(
+                ", {}",
+                w("발생 후 {d}", "{d} after the first event")
+                    .replace("{d}", &duration(language, at - start))
+            )
         })
     };
     let state = match incident.get::<String, _>("state").as_str() {
-        "resolved" => "해결됨",
-        "acknowledged" => "담당 중",
-        _ => "담당 대기",
+        "resolved" => w("해결됨", "resolved"),
+        "acknowledged" => w("담당 중", "acknowledged"),
+        _ => w("담당 대기", "waiting for an owner"),
     };
-    let mut out = format!("# 사건 회고 초안: {title}\n\n");
-    out.push_str(&format!("noti-mesh가 기록으로 만든 초안입니다. 원인, 영향, 후속 조치는 직접 작성하세요. 시각은 {} 기준입니다. 메일과 Telegram은 발송 접수까지만 기록되며, 수신자가 읽었는지는 알 수 없습니다.\n\n## 요약\n\n", zone_label(zone)));
+    let mut out = format!(
+        "# {} {title}\n\n",
+        w("사건 회고 초안:", "Post-incident draft:")
+    );
+    out.push_str(&w(
+        "noti-mesh가 기록으로 만든 초안입니다. 원인, 영향, 후속 조치는 직접 작성하세요. 시각은 {zone} 기준입니다. 메일과 Telegram은 발송 접수까지만 기록되며, 수신자가 읽었는지는 알 수 없습니다.\n\n## 요약\n\n",
+        "noti-mesh made this draft from its records. Write the cause, the impact, and the follow-up actions yourself. Times are in {zone}. Email and Telegram records show provider acceptance only. They do not show whether a person read the message.\n\n## Summary\n\n",
+    ).replace("{zone}", &zone_label(zone)));
     out.push_str(&format!(
-        "- 서비스: {} / {}\n- 사건 키: `{key}`\n- 우선순위: P{}\n- 상태: {state}\n- 이벤트: {}건\n",
+        "- {}: {} / {}\n- {}: `{key}`\n- {}: P{}\n- {}: {state}\n- {}: {}\n",
+        w("서비스", "Service"),
         incident.get::<String, _>("service"),
         incident.get::<String, _>("environment"),
+        w("사건 키", "Incident key"),
+        w("우선순위", "Priority"),
         incident.get::<i16, _>("severity"),
+        w("상태", "State"),
+        w("이벤트", "Events"),
         incident.get::<i64, _>("count"),
     ));
     if let Some(start) = first {
-        out.push_str(&format!("- 처음 발생: {}\n", time(start, zone)));
+        out.push_str(&format!(
+            "- {}: {}\n",
+            w("처음 발생", "First event"),
+            time(start, zone)
+        ));
     }
+    let first_alert = w("첫 Slack 알림", "First Slack alert");
     match first_post {
         Some(at) => out.push_str(&format!(
-            "- 첫 Slack 알림: {}{}\n",
+            "- {first_alert}: {}{}\n",
             time(at, zone),
             since(at)
         )),
-        None => out.push_str("- 첫 Slack 알림: 게시 기록 없음\n"),
+        None => out.push_str(&format!(
+            "- {first_alert}: {}\n",
+            w("게시 기록 없음", "no post recorded")
+        )),
     }
+    let owner_label = w("담당", "Owner");
     match first_owner {
         Some((at, actor)) => out.push_str(&format!(
-            "- 담당: {actor}, {}{}\n",
+            "- {owner_label}: {actor}, {}{}\n",
             time(at, zone),
             since(at)
         )),
-        None => out.push_str("- 담당: 지정 기록 없음\n"),
+        None => out.push_str(&format!(
+            "- {owner_label}: {}\n",
+            w("지정 기록 없음", "not assigned")
+        )),
     }
     if let Some(at) = resolved {
-        out.push_str(&format!("- 해결: {}{}\n", time(at, zone), since(at)));
+        out.push_str(&format!(
+            "- {}: {}{}\n",
+            w("해결", "Resolved"),
+            time(at, zone),
+            since(at)
+        ));
     }
     if let Some(url) = source_url {
-        out.push_str(&format!("- 원본: {url}\n"));
+        out.push_str(&format!("- {}: {url}\n", w("원본", "Source")));
     }
-    out.push_str("\n## 타임라인\n\n");
+    out.push_str(&format!("\n## {}\n\n", w("타임라인", "Timeline")));
     for (at, line) in &timeline {
         out.push_str(&format!("- {} {line}\n", time(*at, zone)));
     }
-    out.push_str(
-        "\n## 원인\n\n(작성 필요)\n\n## 영향\n\n(작성 필요)\n\n## 후속 조치\n\n(작성 필요)\n",
-    );
+    let todo = w("(작성 필요)", "(to be written)");
+    for heading in [
+        w("원인", "Cause"),
+        w("영향", "Impact"),
+        w("후속 조치", "Follow-up actions"),
+    ] {
+        out.push_str(&format!("\n## {heading}\n\n{todo}\n"));
+    }
     Ok((
         [
             (header::CONTENT_TYPE, "text/markdown; charset=utf-8"),
@@ -254,13 +321,17 @@ fn person(app: &App, id: String) -> String {
         .map_or(id, |(name, _)| name.clone())
 }
 
-fn duration(span: chrono::TimeDelta) -> String {
+fn duration(language: crate::policy::Language, span: chrono::TimeDelta) -> String {
     let seconds = span.num_seconds().max(0);
+    let (h, m, s) = match language {
+        crate::policy::Language::Ko => ("시간", "분", "초"),
+        crate::policy::Language::En => (" h", " min", " s"),
+    };
     match (seconds / 3600, seconds % 3600 / 60) {
-        (0, 0) => format!("{seconds}초"),
-        (0, minutes) => format!("{minutes}분"),
-        (hours, 0) => format!("{hours}시간"),
-        (hours, minutes) => format!("{hours}시간 {minutes}분"),
+        (0, 0) => format!("{seconds}{s}"),
+        (0, minutes) => format!("{minutes}{m}"),
+        (hours, 0) => format!("{hours}{h}"),
+        (hours, minutes) => format!("{hours}{h} {minutes}{m}"),
     }
 }
 
@@ -275,10 +346,13 @@ mod tests {
     #[test]
     fn durations_read_naturally() {
         let span = chrono::TimeDelta::seconds;
-        assert_eq!(duration(span(42)), "42초");
-        assert_eq!(duration(span(30 * 60)), "30분");
-        assert_eq!(duration(span(2 * 3600)), "2시간");
-        assert_eq!(duration(span(3600 + 5 * 60 + 9)), "1시간 5분");
-        assert_eq!(duration(span(-5)), "0초");
+        let ko = |s| duration(crate::policy::Language::Ko, span(s));
+        let en = |s| duration(crate::policy::Language::En, span(s));
+        assert_eq!(ko(42), "42초");
+        assert_eq!(ko(30 * 60), "30분");
+        assert_eq!(ko(2 * 3600), "2시간");
+        assert_eq!(ko(3600 + 5 * 60 + 9), "1시간 5분");
+        assert_eq!(ko(-5), "0초");
+        assert_eq!(en(3600 + 5 * 60), "1 h 5 min");
     }
 }

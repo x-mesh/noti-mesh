@@ -89,28 +89,38 @@ pub async fn export(
     };
     // Excel opens UTF-8 CSV correctly only with a byte order mark.
     let mut out = String::from("\u{feff}");
+    let language = app.config.language;
+    let w = |ko: &'static str, en: &'static str| language.pick(ko, en);
     let header = [
-        "사건 ID".to_owned(),
-        "서비스".into(),
-        "환경".into(),
-        "사건 키".into(),
-        "요약".into(),
-        "우선순위".into(),
-        "상태".into(),
-        "점검 무음 중 발생".into(),
-        format!("처음 발생 ({label})"),
-        format!("첫 Slack 게시 ({label})"),
-        "Slack 게시 수".into(),
-        "Slack 실패 수".into(),
-        "멘션 대상".into(),
-        "메일 접수 수(수신 확인 아님)".into(),
-        "Telegram 접수 수(읽음 확인 아님)".into(),
-        "메일·Telegram 실패 수".into(),
-        format!("첫 확인 ({label})"),
-        "첫 확인자".into(),
-        format!("담당 지정 ({label})"),
-        "담당자".into(),
-        format!("해결 ({label})"),
+        w("사건 ID", "Incident ID").replace("{label}", &label),
+        w("서비스", "Service").replace("{label}", &label),
+        w("환경", "Environment").replace("{label}", &label),
+        w("사건 키", "Incident key").replace("{label}", &label),
+        w("요약", "Summary").replace("{label}", &label),
+        w("우선순위", "Priority").replace("{label}", &label),
+        w("상태", "State").replace("{label}", &label),
+        w("점검 무음 중 발생", "Started during a silence").replace("{label}", &label),
+        w("처음 발생 ({label})", "First event ({label})").replace("{label}", &label),
+        w("첫 Slack 게시 ({label})", "First Slack post ({label})").replace("{label}", &label),
+        w("Slack 게시 수", "Slack posts").replace("{label}", &label),
+        w("Slack 실패 수", "Slack failures").replace("{label}", &label),
+        w("멘션 대상", "Mentioned users").replace("{label}", &label),
+        w(
+            "메일 접수 수(수신 확인 아님)",
+            "Emails accepted (not proof of receipt)",
+        )
+        .replace("{label}", &label),
+        w(
+            "Telegram 접수 수(읽음 확인 아님)",
+            "Telegram messages accepted (not proof of reading)",
+        )
+        .replace("{label}", &label),
+        w("메일·Telegram 실패 수", "Email and Telegram failures").replace("{label}", &label),
+        w("첫 확인 ({label})", "First confirmation ({label})").replace("{label}", &label),
+        w("첫 확인자", "First confirmed by").replace("{label}", &label),
+        w("담당 지정 ({label})", "Owner assigned ({label})").replace("{label}", &label),
+        w("담당자", "Owner").replace("{label}", &label),
+        w("해결 ({label})", "Resolved ({label})").replace("{label}", &label),
     ];
     push_row(&mut out, &header);
     for row in rows {
@@ -123,9 +133,9 @@ pub async fn export(
             .map(|id| person(Some(id.to_owned())))
             .collect();
         let state = match row.get::<String, _>("state").as_str() {
-            "resolved" => "해결됨",
-            "acknowledged" => "담당 중",
-            _ => "담당 대기",
+            "resolved" => w("해결됨", "resolved"),
+            "acknowledged" => w("담당 중", "acknowledged"),
+            _ => w("담당 대기", "waiting for an owner"),
         };
         push_row(
             &mut out,
@@ -137,7 +147,12 @@ pub async fn export(
                 row.get::<Option<String>, _>("summary").unwrap_or_default(),
                 format!("P{}", row.get::<i16, _>("severity")),
                 state.to_owned(),
-                if row.get("held") { "예" } else { "아니요" }.to_owned(),
+                if row.get("held") {
+                    w("예", "yes")
+                } else {
+                    w("아니요", "no")
+                }
+                .to_owned(),
                 time(row.get("first_ms")),
                 time(row.get("first_post_ms")),
                 row.get::<i64, _>("posts").to_string(),

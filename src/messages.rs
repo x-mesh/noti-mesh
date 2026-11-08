@@ -233,9 +233,12 @@ pub(crate) async fn deliver(app: &App) -> Result<bool, Box<dyn std::error::Error
     let body = payload["body"].as_str().unwrap_or("");
     // A one-line Slack webhook text becomes both title and body; showing it twice adds nothing.
     let content = if body == title {
-        format!("{marker}{title}\n수신 {count}회")
+        format!("{marker}{title}\n{}", received(app.config.language, count))
     } else {
-        format!("{marker}{title}\n{body}\n수신 {count}회")
+        format!(
+            "{marker}{title}\n{body}\n{}",
+            received(app.config.language, count)
+        )
     };
     let mentioned: Vec<&String> = if payload["notify_users"] == true {
         group
@@ -267,7 +270,7 @@ pub(crate) async fn deliver(app: &App) -> Result<bool, Box<dyn std::error::Error
             json!({"type":"context","elements":[{"type":"mrkdwn","text":link_line(&found)}]}),
         );
     }
-    blocks.push(json!({"type":"actions","elements":[{"type":"button","text":{"type":"plain_text","text":"확인"},"action_id":"message_confirm","value":id}]}));
+    blocks.push(json!({"type":"actions","elements":[{"type":"button","text":{"type":"plain_text","text":app.config.language.pick("확인","Confirm")},"action_id":"message_confirm","value":id}]}));
     // Only ID characters may enter the mention; `<`, `>` or `|` would change the mrkdwn around it.
     let confirmed = confirmers
         .iter()
@@ -275,7 +278,7 @@ pub(crate) async fn deliver(app: &App) -> Result<bool, Box<dyn std::error::Error
         .map(|actor| format!("<@{actor}>"))
         .collect::<Vec<_>>();
     if !confirmed.is_empty() {
-        blocks.push(json!({"type":"context","elements":[{"type":"mrkdwn","text":format!("✅ 확인: {}", confirmed.join(", "))}]}));
+        blocks.push(json!({"type":"context","elements":[{"type":"mrkdwn","text":format!("✅ {}: {}", app.config.language.pick("확인", "Confirmed by"), confirmed.join(", "))}]}));
     }
     let method = if posted {
         "chat.update"
@@ -321,6 +324,14 @@ pub(crate) async fn deliver(app: &App) -> Result<bool, Box<dyn std::error::Error
     }
     tx.commit().await?;
     Ok(true)
+}
+
+fn received(language: crate::policy::Language, count: i64) -> String {
+    match (language, count) {
+        (crate::policy::Language::Ko, _) => format!("수신 {count}회"),
+        (crate::policy::Language::En, 1) => "Received 1 time".to_owned(),
+        (crate::policy::Language::En, _) => format!("Received {count} times"),
+    }
 }
 
 const LINK_LIMIT: usize = 5;
