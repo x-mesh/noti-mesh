@@ -547,6 +547,8 @@ The watchdog checks every 30 seconds by default. It reports the first failure an
 
 Open `/admin` and enter an admin token. The browser keeps the token in memory only. A page reload requires another connection.
 
+Use the selectors at the top right to change the language and the theme. The UI is available in Korean and English, and it follows the browser language until you select one. The theme follows the operating system until you select Light or Dark. The browser keeps both choices. Text from senders, such as incident summaries, stays as sent.
+
 The UI supports incident search, state and priority filters, pagination, event history, delivery history, and responsible user assignment.
 
 The incident view shows the received events and messages for each level in the last hour and the last 24 hours. It also shows the open and unacknowledged incidents for each level. Select a level to filter the incident list by that priority. Received counts use the severity that the source sent. Open incident counts use the priority after the route rules. The UI refreshes the visible view every two seconds.
