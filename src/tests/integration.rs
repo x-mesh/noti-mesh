@@ -2148,7 +2148,7 @@ async fn api_reference_page_limits_scripts_to_this_origin() {
     )
     .unwrap();
     assert!(policy.contains("script-src 'self';") && policy.contains("connect-src 'self'"));
-    assert!(page.contains("&quot;url&quot;:&quot;/openapi.json&quot;"));
+    assert!(page.contains("&quot;url&quot;:&quot;/openapi.json?lang=ko&quot;"));
     assert!(
         !page.contains("bearerAuth&quot;:{&quot;token"),
         "tokens are prefilled only in development mode"
@@ -2718,5 +2718,173 @@ async fn silence_keeps_messages_for_incidents_announced_before_it() {
             .unwrap();
     assert_eq!(held, 0);
     server.abort();
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn english_language_setting_changes_server_text() {
+    let (api, calls, server) = slack_mock().await;
+    let mock = api.clone();
+    let Some(fixture) = Fixture::with_app(move |app| {
+        grant_admins(app);
+        app.config.api_url = mock;
+        app.config.language = policy::Language::En;
+    })
+    .await
+    else {
+        server.abort();
+        return;
+    };
+    let event = json!({"event_id":"en-1","service":"checkout","environment":"production","incident_key":"english","sequence":1,"severity":2,"recovered":false,"occurred_at":"2026-11-08T01:00:00Z","summary":"Payment errors","source_url":"https://grafana.example/d/x"});
+    let incident = create_incident(&fixture.router, event).await;
+    drain(&fixture.app).await;
+    let posted = wait_for_call(&calls, "chat.postMessage").await;
+    let blocks = posted["blocks"].to_string();
+    for text in [
+        "Take ownership",
+        "Confirm only",
+        "Open source",
+        "Select Take ownership to stop escalation",
+    ] {
+        assert!(blocks.contains(text), "{text} missing in {blocks}");
+    }
+    assert!(
+        !blocks.chars().any(|c| ('가'..='힣').contains(&c)),
+        "{blocks}"
+    );
+    calls.lock().unwrap().clear();
+    let refused = workflow::action_payload(
+        fixture.app.clone(),
+        button_press("UOUTSIDER", "ack", &incident, &api),
+    )
+    .await;
+    assert_eq!(refused.unwrap_err().0, StatusCode::FORBIDDEN);
+    let notice = wait_for_call(&calls, "response").await;
+    assert!(
+        notice["text"].as_str().unwrap().contains("not registered"),
+        "{notice}"
+    );
+
+    let (status, _) = api_request(
+        &fixture.router,
+        "/v1/messages",
+        SOURCE_TOKEN,
+        Some(json!({"event_id":"en-m1","service":"checkout","environment":"dev","title":"Backup done","body":"All volumes"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    calls.lock().unwrap().clear();
+    assert!(messages::deliver(&fixture.app).await.unwrap());
+    let message = wait_for_call(&calls, "chat.postMessage").await;
+    assert!(
+        message["text"]
+            .as_str()
+            .unwrap()
+            .ends_with("Received 1 time"),
+        "{message}"
+    );
+    assert!(
+        message["blocks"].to_string().contains("\"Confirm\""),
+        "{message}"
+    );
+
+    let text_of = |path: String| {
+        let router = fixture.admin_router();
+        async move {
+            let response = router
+                .oneshot(
+                    Request::builder()
+                        .uri(path)
+                        .header("authorization", format!("Bearer {ADMIN_TOKEN}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            String::from_utf8(bytes.to_vec()).unwrap()
+        }
+    };
+    let report = text_of(format!("/v1/admin/incidents/{incident}/report")).await;
+    assert!(
+        report.starts_with("# Post-incident draft: Payment errors\n"),
+        "{report}"
+    );
+    assert!(
+        report.contains("## Timeline") && report.contains("## Cause"),
+        "{report}"
+    );
+    assert!(
+        !report.chars().any(|c| ('가'..='힣').contains(&c)),
+        "{report}"
+    );
+    let today = chrono::Utc::now().date_naive();
+    let csv = text_of(format!("/v1/admin/evidence.csv?from={today}&to={today}")).await;
+    let header = csv
+        .trim_start_matches('\u{feff}')
+        .lines()
+        .next()
+        .unwrap()
+        .to_owned();
+    assert!(
+        header.starts_with("Incident ID,Service,Environment"),
+        "{header}"
+    );
+    assert!(
+        !header.chars().any(|c| ('가'..='힣').contains(&c)),
+        "{header}"
+    );
+    server.abort();
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn api_reference_is_available_in_english() {
+    let Some(fixture) = Fixture::new().await else {
+        return;
+    };
+    let get = |path: &str, language: Option<&str>| {
+        let mut request = Request::builder().uri(path);
+        if let Some(language) = language {
+            request = request.header("accept-language", language);
+        }
+        let router = fixture.admin_router();
+        let request = request.body(Body::empty()).unwrap();
+        async move {
+            let response = router.oneshot(request).await.unwrap();
+            let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            String::from_utf8(bytes.to_vec()).unwrap()
+        }
+    };
+    let hangul = |text: &str| text.chars().any(|c| ('가'..='힣').contains(&c));
+    let korean: Value = serde_json::from_str(&get("/openapi.json", None).await).unwrap();
+    // Every Korean string needs an entry in openapi.en.json, or Hangul stays in the English document.
+    for (path, language) in [
+        ("/openapi.json?lang=en", None),
+        ("/openapi.json", Some("en-US,en;q=0.9,ko;q=0.8")),
+    ] {
+        let text = get(path, language).await;
+        assert!(!hangul(&text), "{path}: untranslated text in {text}");
+        let english: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            english["paths"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .collect::<Vec<_>>(),
+            korean["paths"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .collect::<Vec<_>>()
+        );
+    }
+    assert!(hangul(&get("/openapi.json", Some("ko-KR,ko;q=0.9")).await));
+    assert!(hangul(&get("/openapi.json?lang=ko", Some("en-US")).await));
+    let page = get("/admin/api?lang=en", None).await;
+    assert!(
+        page.contains("<html lang=\"en\">") && page.contains("/openapi.json?lang=en"),
+        "{page}"
+    );
     fixture.close().await;
 }

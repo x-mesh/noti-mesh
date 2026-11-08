@@ -153,7 +153,7 @@ async function refreshDetail(){
 }
 setInterval(()=>refresh({automatic:true}),autoRefreshMilliseconds);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh({automatic:true});});
-{const select=$('#lang-select');select.value=window.notiI18n.lang;select.addEventListener('change',()=>window.notiI18n.set(select.value));window.addEventListener('noti-lang',()=>{setView(view);refresh();if(selectedId)refreshDetail();});}
+{const select=$('#lang-select');const docs=()=>{const link=document.querySelector('a.nav-item[href^="/admin/api"]');if(link)link.href=`/admin/api?lang=${window.notiI18n.lang}`;};select.value=window.notiI18n.lang;docs();select.addEventListener('change',()=>{window.notiI18n.set(select.value);docs();});window.addEventListener('noti-lang',()=>{setView(view);refresh();if(selectedId)refreshDetail();});}
 {const select=$('#theme-select');select.value=window.notiTheme?.get() ?? 'system';select.addEventListener('change',()=>window.notiTheme?.set(select.value));}
 // On narrow screens the menu scrolls sideways; keep the selected item inside the visible strip.
 function revealNav(button){const nav=button?.parentElement;if(!nav||nav.scrollWidth<=nav.clientWidth)return;const item=button.getBoundingClientRect(),strip=nav.getBoundingClientRect();if(item.left>=strip.left&&item.right<=strip.right)return;nav.scrollTo({left:nav.scrollLeft+item.left-strip.left-(strip.width-item.width)/2,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});}

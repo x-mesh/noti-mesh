@@ -14,7 +14,7 @@
     },
     {
       "name": "연동",
-      "description": "기존 Slack·Alertmanager·Grafana 발신자를 그대로 받는 입구"
+      "description": "기존 Slack 발신자와 모니터링 도구(Alertmanager, Grafana, Uptime Kuma, Sentry, Datadog)의 알림을 받는 입구"
     },
     {
       "name": "상태"

@@ -385,7 +385,7 @@ The detail response contains events, delivery attempts, and incidents with a sha
 
 ## API reference and test console
 
-Open `/admin/api`, or select **API 문서·테스트** in the admin UI. The page shows the public API from `/openapi.json` and can send test requests.
+Open `/admin/api`, or select **API 문서·테스트** in the admin UI. The page shows the public API from `/openapi.json` and can send test requests. Add `?lang=en` or `?lang=ko` to select the language of the document. Without it, the page follows the browser language. The admin UI link uses the language selected in the admin UI.
 
 1. Enter a client token or a source token in **Authentication**. In development mode, the page fills in the development source token.
 2. Open an operation and select **Test Request**.
@@ -410,6 +410,8 @@ escalation_seconds = 1800
 ```
 
 The first route that matches sets the responsible group and the priority floor. Unmatched events use the default group.
+
+Set the top-level `language` key to `ko` or `en` to select the language of the text that the server writes. This includes Slack messages, Slack buttons and notices, email and Telegram bodies, post-incident drafts, and CSV headers. The default is `ko`. The admin UI has its own language selector.
 
 Restart the service after a configuration change. Invalid group references or nonpositive intervals prevent startup.
 

@@ -86,9 +86,65 @@ fn asset(content_type: &'static str, content: &'static str) -> Response {
     ([(header::CONTENT_TYPE,content_type),(header::CACHE_CONTROL,"no-store"),(header::X_CONTENT_TYPE_OPTIONS,"nosniff"),(header::CONTENT_SECURITY_POLICY,"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")],content).into_response()
 }
 /// Serves the API reference page.
-async fn api_reference(State(app): State<Arc<App>>) -> Response {
+#[derive(Deserialize)]
+struct DocQuery {
+    lang: Option<String>,
+}
+/// English for `?lang=en`, or without `lang` when the browser does not prefer Korean.
+fn english_docs(query: &DocQuery, headers: &HeaderMap) -> bool {
+    match query.lang.as_deref() {
+        Some(lang) => lang == "en",
+        None => headers
+            .get(header::ACCEPT_LANGUAGE)
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v.trim().to_ascii_lowercase())
+            .is_some_and(|v| !v.is_empty() && !v.starts_with("ko")),
+    }
+}
+/// The English document replaces each Korean string with its entry in `openapi.en.json`.
+fn openapi_english() -> &'static str {
+    static DOCUMENT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    DOCUMENT.get_or_init(|| {
+        let words: std::collections::HashMap<String, String> =
+            serde_json::from_str(include_str!("../web/openapi.en.json"))
+                .expect("openapi.en.json is a string map");
+        fn translate(value: &mut Value, words: &std::collections::HashMap<String, String>) {
+            match value {
+                Value::String(text) => {
+                    if let Some(english) = words.get(text.as_str()) {
+                        *text = english.clone();
+                    }
+                }
+                Value::Array(items) => items.iter_mut().for_each(|v| translate(v, words)),
+                Value::Object(map) => map.values_mut().for_each(|v| translate(v, words)),
+                _ => {}
+            }
+        }
+        let mut document: Value = serde_json::from_str(include_str!("../web/openapi.json"))
+            .expect("openapi.json is valid JSON");
+        translate(&mut document, &words);
+        serde_json::to_string_pretty(&document).expect("JSON serializes")
+    })
+}
+async fn openapi_document(Query(query): Query<DocQuery>, headers: HeaderMap) -> Response {
+    if english_docs(&query, &headers) {
+        asset("application/json", openapi_english())
+    } else {
+        asset("application/json", include_str!("../web/openapi.json"))
+    }
+}
+async fn api_reference(
+    State(app): State<Arc<App>>,
+    Query(query): Query<DocQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let lang = if english_docs(&query, &headers) {
+        "en"
+    } else {
+        "ko"
+    };
     let mut config = json!({
-        "url":"/openapi.json",
+        "url":format!("/openapi.json?lang={lang}"),
         "withDefaultFonts":false,
         "telemetry":false,
         "hideClientButton":true,
@@ -112,7 +168,7 @@ async fn api_reference(State(app): State<Arc<App>>) -> Response {
         .replace('<', "&lt;")
         .replace('>', "&gt;");
     let page = format!(
-        "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><link rel=\"icon\" href=\"data:,\"><title>API · noti-mesh</title></head><body><script id=\"api-reference\" type=\"application/json\" data-configuration=\"{attribute}\"></script><script src=\"/admin/scalar.js\"></script></body></html>"
+        "<!doctype html><html lang=\"{lang}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><link rel=\"icon\" href=\"data:,\"><title>API · noti-mesh</title></head><body><script id=\"api-reference\" type=\"application/json\" data-configuration=\"{attribute}\"></script><script src=\"/admin/scalar.js\"></script></body></html>"
     );
     // Scalar sets inline styles without a nonce; scripts and connections stay limited to this origin.
     let policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
@@ -130,10 +186,7 @@ async fn api_reference(State(app): State<Arc<App>>) -> Response {
 pub fn routes() -> Router<Arc<App>> {
     Router::new()
         .route("/admin/api", get(api_reference))
-        .route(
-            "/openapi.json",
-            get(|| async { asset("application/json", include_str!("../web/openapi.json")) }),
-        )
+        .route("/openapi.json", get(openapi_document))
         .route(
             "/admin/scalar.js",
             get(|| async {
