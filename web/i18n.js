@@ -134,15 +134,15 @@
     '방금 전': 'just now', '기록 없음': 'No record', '시각 정보 없음': 'No time', '아직 갱신하지 않음': 'Not refreshed yet', '마지막 갱신': 'Last refresh',
     '발송 안 함': 'Not sent', '발송 전': 'Not sent yet', '없음': 'None', '예정': 'Scheduled', '지정 대상': 'Targets', '멘션': 'Mention', '메일': 'Email',
     '상세': 'Detail', '경로': 'Path', '중복': 'Duplicates', '최근': 'Latest', '발생': 'Occurred', '접수': 'Received', '서버': 'Server', '종료': 'Ended',
-    '긴급': 'Critical', '높음': 'High', '보통': 'Normal', '낮음': 'Low', '재시도': 'Retries', '페이지': 'Page', '사건 · noti-mesh': 'Incidents · noti-mesh', '운': 'O',
+    '긴급': 'Critical', '높음': 'High', '보통': 'Normal', '낮음': 'Low', '재시도': 'Retries', '페이지': 'Page', '사건 · noti-mesh': 'Incidents · noti-mesh', '운': 'O', 'Slack 채널 · 예정': 'Slack channel · scheduled',
     '요청을 처리하지 못했어요.': 'Could not process the request.', 'CSV를 만들지 못했어요.': 'Could not create the CSV.', '회고 초안을 만들지 못했어요.': 'Could not create the draft.',
   };
   const TITLES = { '사건': 'Incidents', '일반 메시지': 'Messages', '발송 현황': 'Deliveries', '클라이언트 토큰': 'Client tokens', '점검 무음': 'Silences', '담당 그룹·정책': 'Groups & policy' };
   // Whole-node shapes with variable parts; the captured parts are kept as they are.
   const PATTERNS = [
     [/^(\d+)분 전$/, '$1 min ago'], [/^(\d+)시간 전$/, '$1 h ago'], [/^(\d+)일 전$/, '$1 d ago'],
-    [/^(\d+)분$/, '$1 min'], [/^(\d+)시간$/, '$1 h'], [/^(\d+)건$/, '$1'],
-    [/^최근 (\d+)건$/, 'Last $1'], [/^최근 (\d+)건 · 최신 순$/, 'Last $1 · newest first'], [/^중복 (\d+)건$/, '$1 duplicates'],
+    [/^(\d+)분$/, '$1 min'], [/^(\d+)시간$/, '$1 h'], [/^([\d,]+)건$/, '$1'],
+    [/^최근 (\d+)건$/, 'Last $1'], [/^최근 (\d+)건 · 최신 순$/, 'Last $1 · newest first'], [/^중복 ([\d,]+)건$/, '$1 duplicates'],
     [/^(\d+) 페이지$/, 'Page $1'], [/^(\d+)–(\d+)번째 사건 · 현재 조건 기준$/, 'Incidents $1–$2 · current filter'],
     [/^현재 조건에서 (\d+)건$/, '$1 match the filter'], [/^대체 발송 대기 (\d+)건$/, 'Fallback waiting: $1'],
     [/^조치가 필요한 실패 (\d+)건$/, 'Failures that need action: $1'], [/^세부 정보 · 확인 기록 (\d+)건$/, 'Details · $1 confirmations'],
@@ -150,7 +150,7 @@
     [/^([^가-힣]+) · 순번 ([\d,]+)$/, '$1 · sequence $2'], [/^장애 이벤트 · (.+)$/, 'Incident event · $1'],
     [/^(.+) 님이 대응 중이에요\. 복구가 확인되면 해결 상태로 바뀝니다\.$/, '$1 is handling this incident. It resolves when a recovery event arrives.'],
     [/^(.+) 님을 담당자로 지정했어요\.$/, 'Assigned $1.'], [/^(.+) · 미분류 전달$/, '$1 · unclassified route'], [/^선택: (.+)$/, 'Selected: $1'], [/^자동 갱신 · (.+)$/, 'Auto refresh · $1'],
-    [/^(.+) · 재시도 (\d+)회$/, '$1 · $2 retries'], [/^Slack 채널 (.+)$/, 'Slack channel $1'], [/^(\d+)건 더 보기$/, 'Show $1 more'],
+    [/^(.+) · 재시도 (\d+)회$/, '$1 · $2 retries'], [/^Slack 채널 (.+)$/, 'Slack channel $1'], [/^(\d+)건 더 보기$/, 'Show $1 more'], [/^이전 이벤트 ([\d,]+)건 더 보기$/, 'Show $1 earlier events'], [/^담당 대기 ([\d,]+)$/, '$1 unassigned'], [/^일반 메시지 · (.+)$/, 'Message · $1'], [/^취소된 발송 ([\d,]+)건$/, 'Cancelled deliveries: $1'],
     [/^(.+) · 생성 (.+) · 마지막 교체 (.+) · 마지막 사용 (.+)$/, '$1 · created $2 · last rotated $3 · last used $4'],
     [/^(.+) · (.+) ~ (.+) · 작성 (.+)$/, '$1 · $2 – $3 · by $4'], [/^(.+) · noti-mesh$/, (m, a) => `${TITLES[a] ?? a} · noti-mesh`],
   ];
@@ -161,6 +161,7 @@
     [/· 지정 대상|· 멘션 요청|· 메시지 확인 이력/, [[/· 지정 대상 /, '· targets '], [/· 멘션 요청 /, '· mentions '], [/· 메시지 확인 이력 (\d+)건/, '· $1 confirmations'], [/· 중복 (\d+)건 묶음/, '· $1 duplicates grouped'], [/발송 안 함/, 'not sent'], [/발송 전/, 'not sent yet'], [/기록 없음/, 'no record'], [/없음/, 'none'], [/예정/, 'scheduled']]],
     [/\((개발 모드|공유 관리자|작업자 정보 없음)\)|^(폐기|교체|발급) /, [[/(^|· )폐기 /g, '$1revoked '], [/(^|· )교체 /g, '$1rotated '], [/(^|· )발급 /g, '$1created '], [/\(개발 모드\)/g, '(development mode)'], [/\(공유 관리자\)/g, '(shared admin)'], [/\(작업자 정보 없음\)/g, '(no actor)']]],
     [/^기록 .+ · 메시지 /, [[/^기록 /, 'Recorded '], [/· 메시지 /, '· message ']]],
+    [/^확인 .+ · 기록 .+ · 메시지 /, [[/^확인 /, 'Confirmed '], [/· 기록 /, '· recorded '], [/· 메시지 /, '· message ']]],
     [/ · 확인 \d{1,2}\/|· 확인 \d{4}\./, [[/ · 확인 /, ' · confirmed ']]],
     [/^(발생|접수) .+ · (발생|접수) /, [[/(^|· )발생 /g, '$1Occurred '], [/(^|· )접수 /g, '$1Received ']]],
     [/^· (재시도|발송 ID|확인 버튼|중복|확인|메시지|발생|접수|작성|예정|순번|생성|기록)\b/, [[/^· 재시도/, '· retries'], [/^· 발송 ID/, '· delivery ID'], [/^· 확인 버튼/, '· confirm button'], [/^· 중복/, '· duplicates'], [/^· 확인/, '· confirmed'], [/^· 메시지/, '· message'], [/^· 발생/, '· occurred'], [/^· 접수/, '· received'], [/^· 작성/, '· by'], [/^· 예정/, '· scheduled'], [/^· 순번/, '· sequence'], [/^· 생성/, '· created'], [/^· 기록/, '· recorded']]],
