@@ -179,6 +179,10 @@ pub fn routes() -> Router<Arc<App>> {
             get(|| async { asset("text/javascript", include_str!("../web/app.js")) }),
         )
         .route(
+            "/admin/theme.js",
+            get(|| async { asset("text/javascript", include_str!("../web/theme.js")) }),
+        )
+        .route(
             "/admin/kit.css",
             get(|| async { asset("text/css", include_str!("../web/vendor/kit.css")) }),
         )
