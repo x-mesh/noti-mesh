@@ -1,0 +1,24 @@
+# Stack this file onto an existing noti-mesh project with the same --project-name,
+# so that the forwarder reaches the app service at http://app:8080.
+services:
+  telegram-forwarder:
+    build:
+      context: .
+      dockerfile: Dockerfile.telegram
+    init: true
+    restart: unless-stopped
+    environment:
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:?Set TELEGRAM_API_ID}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:?Set TELEGRAM_API_HASH}
+      TELEGRAM_CHANNEL_ID: ${TELEGRAM_CHANNEL_ID:?Set TELEGRAM_CHANNEL_ID}
+      NOTI_FORWARDER_TOKEN: ${NOTI_FORWARDER_TOKEN:?Set NOTI_FORWARDER_TOKEN}
+      NOTI_URL: ${NOTI_URL:-http://app:8080}
+      NOTI_SERVICE: ${NOTI_SERVICE:-telegram-channel}
+      NOTI_ENVIRONMENT: ${NOTI_ENVIRONMENT:-mainnet}
+    volumes:
+      - telegram-session:/data
+    depends_on:
+      app:
+        condition: service_started
+volumes:
+  telegram-session:

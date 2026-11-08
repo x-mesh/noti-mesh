@@ -1,0 +1,6 @@
+FROM python:3.13-alpine
+RUN pip install --no-cache-dir telethon==1.45.0 && adduser -D -u 10001 forwarder && mkdir /data && chown forwarder /data
+COPY scripts/telegram_forward.py scripts/telegram_forwarder.py /app/
+WORKDIR /app
+USER forwarder
+ENTRYPOINT ["python", "-u", "telegram_forwarder.py"]

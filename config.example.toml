@@ -1,0 +1,32 @@
+workspace = "REPLACE_SLACK_WORKSPACE_ID"
+signing_secret_env = "SLACK_SIGNING_SECRET"
+api_url = "https://slack.com/api"
+default_group = "operations"
+
+[sources.monitoring]
+token_env = "NOTI_API_TOKEN"
+
+[users]
+operator = "REPLACE_SLACK_USER_ID"
+backup = "REPLACE_BACKUP_SLACK_USER_ID"
+
+[groups.operations]
+channel = "REPLACE_CHANNEL_ID"
+members = ["operator"]
+backup = "backup"
+
+[groups.backup]
+channel = "REPLACE_CHANNEL_ID"
+members = ["backup"]
+backup = "operations"
+
+[[routes]]
+service = "checkout"
+environment = "production"
+group = "operations"
+priority_floor = 2
+
+[ai]
+enabled = false
+model = ""
+api_url = "https://api.openai.com/v1/responses"

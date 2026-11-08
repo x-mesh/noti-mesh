@@ -1,0 +1,26 @@
+workspace = "set-by-environment"
+signing_secret_env = "SLACK_SIGNING_SECRET"
+api_url = "https://slack.com/api"
+default_group = "development"
+
+[sources.monitoring]
+token_env = "NOTI_API_TOKEN"
+
+[users]
+dev-operator = "set-by-environment"
+
+[groups.development]
+channel = "set-by-environment"
+members = ["dev-operator"]
+backup = "development"
+
+[[routes]]
+service = "checkout"
+environment = "development"
+group = "development"
+priority_floor = 2
+
+[ai]
+enabled = false
+model = ""
+api_url = "https://api.openai.com/v1/responses"

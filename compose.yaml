@@ -1,0 +1,51 @@
+services:
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    environment:
+      POSTGRES_DB: noti_mesh
+      POSTGRES_USER: noti_mesh
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U noti_mesh"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  app:
+    build: .
+    init: true
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "noti-mesh", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    ports: ["127.0.0.1:8080:8080"]
+    environment:
+      DATABASE_URL: postgresql://noti_mesh:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db/noti_mesh
+      NOTI_API_TOKEN: ${NOTI_API_TOKEN:?Set NOTI_API_TOKEN}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      NOTI_ADMIN_TOKEN: ${NOTI_ADMIN_TOKEN:-}
+      NOTI_CONFIG: /app/config.toml
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  postgres:

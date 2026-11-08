@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: noti_mesh_dev
+      POSTGRES_USER: noti_mesh_dev
+      POSTGRES_PASSWORD: development-only
+    volumes:
+      - dev-postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U noti_mesh_dev -d noti_mesh_dev"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+  slack:
+    image: python:3.13-alpine
+    command: ["python", "-u", "/app/dev_slack.py"]
+    volumes:
+      - ./scripts/dev_slack.py:/app/dev_slack.py:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/health')"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+  app:
+    build: .
+    ports:
+      - "0.0.0.0:${DEV_PORT:-8080}:8080"
+    environment:
+      DATABASE_URL: postgresql://noti_mesh_dev:development-only@db/noti_mesh_dev
+      NOTI_DEV_MODE: "1"
+      NOTI_API_TOKEN: dev-source-token-not-for-production-0001
+      NOTI_ADMIN_TOKEN: dev-admin-token-not-for-production-0001
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-development-only}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-development-only}
+      TELEGRAM_BOT_TOKEN: "123:development"
+      NOTI_LOCAL_MOCKS: "1"
+      NOTI_CONFIG: /app/config.toml
+    volumes:
+      - ./config.dev.toml:/app/config.toml:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      slack:
+        condition: service_healthy
+  channel-mocks:
+    image: python:3.13-alpine
+    command: ["python", "-u", "/app/dev_channels.py"]
+    network_mode: "service:app"
+    volumes:
+      - ./scripts/dev_channels.py:/app/dev_channels.py:ro
+    depends_on:
+      app:
+        condition: service_started
+volumes:
+  dev-postgres:

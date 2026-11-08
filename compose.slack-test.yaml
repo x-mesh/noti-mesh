@@ -1,0 +1,10 @@
+services:
+  app:
+    environment:
+      NOTI_DEV_SLACK_LIVE: "1"
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
+      NOTI_LOCAL_MOCKS: "0"
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:?Set SLACK_BOT_TOKEN in .env}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:?Set SLACK_SIGNING_SECRET in .env}
+    volumes:
+      - ./config.slack-test.toml:/app/config.toml:ro

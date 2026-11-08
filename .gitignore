@@ -1,0 +1,8 @@
+/target/
+/config.toml
+.env
+
+__pycache__/
+/.xm/
+*.session
+/.jstyle/

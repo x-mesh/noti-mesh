@@ -1,0 +1,27 @@
+[package]
+name = "noti-mesh"
+version = "0.1.0"
+edition = "2024"
+description = "Incident and message notification gateway for Slack, email, and Telegram"
+license = "MIT"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "json", "migrate"] }
+reqwest = { version = "0.12", features = ["json"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+toml = "0.8"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+serde_urlencoded = "0.7"
+chrono = "0.4"
+futures-util = "0.3"
+tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
+lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

@@ -1,0 +1,16 @@
+ALTER TABLE incidents ADD COLUMN channel text;
+ALTER TABLE incidents ADD COLUMN slack_ts text;
+ALTER TABLE incidents ADD COLUMN next_summary timestamptz;
+ALTER TABLE incidents ADD COLUMN summary_step integer NOT NULL DEFAULT 0;
+ALTER TABLE incidents ADD COLUMN next_escalation timestamptz;
+ALTER TABLE incidents ADD COLUMN escalation_step integer NOT NULL DEFAULT 0;
+ALTER TABLE incidents ADD COLUMN dirty boolean NOT NULL DEFAULT false;
+ALTER TABLE incidents ADD COLUMN ai_summary jsonb;
+ALTER TABLE incidents ADD COLUMN ai_error text;
+ALTER TABLE incidents ADD COLUMN next_ai timestamptz DEFAULT now();
+ALTER TABLE outbox ADD COLUMN kind text NOT NULL DEFAULT 'update';
+ALTER TABLE outbox ADD COLUMN target text;
+ALTER TABLE outbox ADD COLUMN lease_until timestamptz;
+ALTER TABLE outbox ADD COLUMN lease_token text;
+CREATE TABLE actions(id text PRIMARY KEY, incident_id text NOT NULL REFERENCES incidents(id), actor text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX outbox_due ON outbox(due_at) WHERE sent_at IS NULL;

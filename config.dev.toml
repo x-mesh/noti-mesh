@@ -1,0 +1,62 @@
+workspace = "TDEV"
+signing_secret_env = "SLACK_SIGNING_SECRET"
+api_url = "http://slack:8090/api"
+default_group = "development"
+
+[sources.monitoring]
+token_env = "NOTI_API_TOKEN"
+
+[users]
+dev-operator = "UDEVOPERATOR"
+dev-backup = "UDEVBACKUP"
+
+[groups.development]
+channel = "CDEVELOPMENT"
+members = ["dev-operator"]
+backup = "development-backup"
+
+[groups.development-backup]
+channel = "CDEVBACKUP"
+members = ["dev-backup"]
+backup = "development"
+
+[[routes]]
+service = "checkout"
+environment = "development"
+group = "development"
+priority_floor = 2
+
+[ai]
+enabled = false
+model = ""
+api_url = "https://api.openai.com/v1/responses"
+
+[channels.email]
+host = "127.0.0.1"
+port = 1025
+from = "noti-mesh@example.test"
+security = "local"
+
+[channels.telegram]
+token_env = "TELEGRAM_BOT_TOKEN"
+api_base = "http://127.0.0.1:8091"
+
+[[groups.development.destinations]]
+channel = "email"
+address = "dev-operator@example.test"
+mode = "fallback"
+
+[[groups.development.destinations]]
+channel = "telegram"
+address = "-100001"
+mode = "fallback"
+
+[[groups.development-backup.destinations]]
+channel = "email"
+address = "dev-backup@example.test"
+mode = "unacknowledged"
+
+[[groups.development-backup.destinations]]
+channel = "telegram"
+address = "-100002"
+mode = "unacknowledged"

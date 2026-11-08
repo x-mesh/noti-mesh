@@ -1,0 +1,1779 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "noti-mesh API",
+    "version": "1",
+    "description": "사건 이벤트와 일반 메시지를 받아 담당 그룹에 전달하는 API입니다. 시험할 때는 `dry_run=true`로 저장·발송 없이 결과를 확인하세요."
+  },
+  "tags": [
+    {
+      "name": "사건"
+    },
+    {
+      "name": "일반 메시지"
+    },
+    {
+      "name": "연동",
+      "description": "기존 Slack·Alertmanager·Grafana 발신자를 그대로 받는 입구"
+    },
+    {
+      "name": "상태"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "관리 화면에서 발급한 클라이언트 토큰 또는 서버에 설정한 소스 토큰"
+      }
+    }
+  },
+  "paths": {
+    "/v1/events": {
+      "post": {
+        "tags": [
+          "사건"
+        ],
+        "summary": "사건 이벤트 보내기",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "example": true,
+            "description": "true이면 인증·검증·변환·경로 결정까지만 하고 저장·발송하지 않습니다. 결과로 저장될 내용과 경로를 돌려줍니다."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "event_id",
+                  "service",
+                  "environment",
+                  "incident_key",
+                  "sequence",
+                  "severity",
+                  "recovered",
+                  "occurred_at"
+                ],
+                "properties": {
+                  "event_id": {
+                    "type": "string",
+                    "maxLength": 256,
+                    "description": "발신자가 정하는 이벤트 ID. 같은 내용의 재전송에만 다시 씁니다."
+                  },
+                  "service": {
+                    "type": "string",
+                    "maxLength": 256
+                  },
+                  "environment": {
+                    "type": "string",
+                    "maxLength": 256
+                  },
+                  "incident_key": {
+                    "type": "string",
+                    "maxLength": 256,
+                    "description": "같은 문제를 하나의 사건으로 묶는 키. 해결된 뒤에는 새 키를 씁니다."
+                  },
+                  "sequence": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "사건 안에서 커지는 순번. 더 큰 순번만 상태를 바꿉니다."
+                  },
+                  "severity": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4,
+                    "description": "1=P1(긴급) … 4=P4(낮음)"
+                  },
+                  "recovered": {
+                    "type": "boolean",
+                    "description": "true이면 복구 이벤트로 사건을 해결합니다."
+                  },
+                  "occurred_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "correlation_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "연결 사건을 묶는 ID. 인과 관계를 뜻하지 않습니다."
+                  },
+                  "error_code": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 64,
+                    "pattern": "^[A-Za-z0-9._-]+$"
+                  },
+                  "summary": {
+                    "type": "string",
+                    "maxLength": 1000
+                  },
+                  "source_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "maxLength": 2048
+                  }
+                }
+              },
+              "example": {
+                "event_id": "checkout-500-0001",
+                "service": "checkout",
+                "environment": "development",
+                "incident_key": "checkout-http-500",
+                "sequence": 1,
+                "severity": 2,
+                "recovered": false,
+                "occurred_at": "2026-11-08T01:00:00Z",
+                "correlation_id": null,
+                "error_code": "HTTP_500",
+                "summary": "결제 API 5xx 증가"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "새 사건 또는 상태 변경 접수",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "incident_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "같은 이벤트의 재전송, 또는 dry_run 결과",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "토큰이 없거나 틀림",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "같은 event_id에 다른 내용, 또는 해결된 사건 키 재사용",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "필드 검증 실패",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/messages": {
+      "post": {
+        "tags": [
+          "일반 메시지"
+        ],
+        "summary": "일반 메시지 보내기",
+        "description": "같은 클라이언트가 60초 안에 같은 내용을 보내면 한 메시지로 묶습니다.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "example": true,
+            "description": "true이면 인증·검증·변환·경로 결정까지만 하고 저장·발송하지 않습니다. 결과로 저장될 내용과 경로를 돌려줍니다."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "event_id",
+                  "service",
+                  "environment",
+                  "title",
+                  "body"
+                ],
+                "properties": {
+                  "event_id": {
+                    "type": "string",
+                    "maxLength": 256
+                  },
+                  "service": {
+                    "type": "string",
+                    "maxLength": 256
+                  },
+                  "environment": {
+                    "type": "string",
+                    "maxLength": 256
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "최대 200바이트"
+                  },
+                  "body": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "description": "최대 2000바이트"
+                  },
+                  "notify_users": {
+                    "type": "boolean",
+                    "description": "true이면 담당 그룹을 Slack에서 멘션합니다."
+                  },
+                  "level": {
+                    "type": "string",
+                    "enum": [
+                      "crit",
+                      "error",
+                      "warn",
+                      "info"
+                    ],
+                    "default": "info"
+                  }
+                }
+              },
+              "example": {
+                "event_id": "report-001",
+                "service": "checkout",
+                "environment": "development",
+                "title": "일일 리포트 완료",
+                "body": "오늘 리포트가 준비됐습니다.",
+                "level": "info"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "새 메시지 접수",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "재전송이나 중복 묶음, 또는 dry_run 결과",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "토큰이 없거나 틀림",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "같은 event_id에 다른 내용",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "필드 검증 실패",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/messages/{id}": {
+      "get": {
+        "tags": [
+          "일반 메시지"
+        ],
+        "summary": "메시지 발송 상태 보기",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "메시지, 중복 수, 확인 기록, 다른 채널 발송",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "토큰이 없거나 틀림",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "없거나 다른 클라이언트의 메시지",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/client": {
+      "get": {
+        "tags": [
+          "상태"
+        ],
+        "summary": "토큰의 서비스 확인",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "클라이언트 토큰이면 서비스 이름, 소스 토큰이면 null",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "service": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "토큰이 없거나 틀림",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/incidents": {
+      "get": {
+        "tags": [
+          "사건"
+        ],
+        "summary": "사건 목록",
+        "description": "최대 100건. 클라이언트 토큰은 자기 사건만 봅니다.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "사건 목록",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "토큰이 없거나 틀림",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/incidents/{id}": {
+      "get": {
+        "tags": [
+          "사건"
+        ],
+        "summary": "사건 상세",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "사건, 이벤트, 발송 기록, 연결 사건",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "토큰이 없거나 틀림",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "없거나 다른 클라이언트의 사건",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/operations": {
+      "get": {
+        "tags": [
+          "상태"
+        ],
+        "summary": "발송 작업 현황",
+        "description": "서버에 설정한 소스 토큰만 쓸 수 있습니다.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "대기, 실패, 가장 이른 예정 시각",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "소스 토큰이 아님",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/hooks/slack/{token}": {
+      "post": {
+        "tags": [
+          "연동"
+        ],
+        "summary": "Slack Incoming Webhook 형식으로 보내기",
+        "description": "기존 Slack webhook 발신자는 URL만 바꾸면 됩니다. 토큰이 URL에 있으니 유출되면 관리 화면에서 교체하세요.",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "클라이언트 토큰"
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "production"
+            },
+            "example": "development",
+            "description": "경보나 메시지에 환경이 없을 때 쓸 환경 이름입니다."
+          },
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "example": true,
+            "description": "true이면 인증·검증·변환·경로 결정까지만 하고 저장·발송하지 않습니다. 결과로 저장될 내용과 경로를 돌려줍니다."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  },
+                  "blocks": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "attachments": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  }
+                }
+              },
+              "example": {
+                "text": "Nightly export failed\n3 rows rejected",
+                "attachments": [
+                  {
+                    "color": "danger",
+                    "text": "see the job log"
+                  }
+                ]
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "payload": {
+                    "type": "string",
+                    "description": "JSON 문자열"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "`ok`. dry_run이면 변환된 메시지와 경로(JSON)",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "example": "ok"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_payload, no_text, invalid_environment",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no_service: 모르거나 폐기된 토큰",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/hooks/alertmanager": {
+      "post": {
+        "tags": [
+          "연동"
+        ],
+        "summary": "Alertmanager 경보 보내기",
+        "description": "경보 하나가 사건 하나가 됩니다. firing은 발생, resolved는 해결입니다.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "production"
+            },
+            "example": "development",
+            "description": "경보나 메시지에 환경이 없을 때 쓸 환경 이름입니다."
+          },
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "example": true,
+            "description": "true이면 인증·검증·변환·경로 결정까지만 하고 저장·발송하지 않습니다. 결과로 저장될 내용과 경로를 돌려줍니다."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "alerts"
+                ],
+                "properties": {
+                  "groupKey": {
+                    "type": "string",
+                    "description": "같은 알림의 경보를 연결 사건으로 묶습니다."
+                  },
+                  "alerts": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "startsAt"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "firing",
+                            "resolved"
+                          ]
+                        },
+                        "labels": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "description": "alertname, severity, environment/env를 읽습니다."
+                        },
+                        "annotations": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "description": "summary, description, message 중 하나를 요약으로 씁니다."
+                        },
+                        "startsAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "endsAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "description": "resolved 경보에 필요합니다."
+                        },
+                        "generatorURL": {
+                          "type": "string"
+                        },
+                        "panelURL": {
+                          "type": "string"
+                        },
+                        "dashboardURL": {
+                          "type": "string"
+                        },
+                        "fingerprint": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "example": {
+                "groupKey": "{}:{alertname=\"HighLatency\"}",
+                "alerts": [
+                  {
+                    "status": "firing",
+                    "labels": {
+                      "alertname": "HighLatency",
+                      "severity": "critical"
+                    },
+                    "annotations": {
+                      "summary": "p99 latency above 2s"
+                    },
+                    "startsAt": "2026-11-08T01:00:00Z",
+                    "endsAt": "0001-01-01T00:00:00Z",
+                    "generatorURL": "http://prometheus:9090/graph",
+                    "fingerprint": "a1b2c3"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "사건 ID 목록. dry_run이면 각 경보의 변환 결과와 경로입니다.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "incidents": {
+                      "type": "array",
+                      "items": {}
+                    },
+                    "rejected": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "fingerprint": {
+                            "type": "string"
+                          },
+                          "error": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "토큰이 없거나 틀림",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "서비스가 정해지지 않은 정적 토큰",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "일부 경보 거부. 나머지는 처리됩니다.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/hooks/grafana": {
+      "post": {
+        "tags": [
+          "연동"
+        ],
+        "summary": "Grafana 경보 보내기 (POST)",
+        "description": "Grafana webhook 연락처. panelURL·dashboardURL을 사건 링크로 먼저 씁니다.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "production"
+            },
+            "example": "development",
+            "description": "경보나 메시지에 환경이 없을 때 쓸 환경 이름입니다."
+          },
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "example": true,
+            "description": "true이면 인증·검증·변환·경로 결정까지만 하고 저장·발송하지 않습니다. 결과로 저장될 내용과 경로를 돌려줍니다."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "alerts"
+                ],
+                "properties": {
+                  "groupKey": {
+                    "type": "string",
+                    "description": "같은 알림의 경보를 연결 사건으로 묶습니다."
+                  },
+                  "alerts": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "startsAt"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "firing",
+                            "resolved"
+                          ]
+                        },
+                        "labels": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "description": "alertname, severity, environment/env를 읽습니다."
+                        },
+                        "annotations": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "description": "summary, description, message 중 하나를 요약으로 씁니다."
+                        },
+                        "startsAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "endsAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "description": "resolved 경보에 필요합니다."
+                        },
+                        "generatorURL": {
+                          "type": "string"
+                        },
+                        "panelURL": {
+                          "type": "string"
+                        },
+                        "dashboardURL": {
+                          "type": "string"
+                        },
+                        "fingerprint": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "example": {
+                "groupKey": "{}:{alertname=\"HighLatency\"}",
+                "alerts": [
+                  {
+                    "status": "firing",
+                    "labels": {
+                      "alertname": "HighLatency",
+                      "severity": "critical"
+                    },
+                    "annotations": {
+                      "summary": "p99 latency above 2s"
+                    },
+                    "startsAt": "2026-11-08T01:00:00Z",
+                    "endsAt": "0001-01-01T00:00:00Z",
+                    "generatorURL": "http://prometheus:9090/graph",
+                    "fingerprint": "a1b2c3"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "사건 ID 목록. dry_run이면 각 경보의 변환 결과와 경로입니다.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "incidents": {
+                      "type": "array",
+                      "items": {}
+                    },
+                    "rejected": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "fingerprint": {
+                            "type": "string"
+                          },
+                          "error": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "토큰이 없거나 틀림",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "서비스가 정해지지 않은 정적 토큰",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "일부 경보 거부. 나머지는 처리됩니다.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "연동"
+        ],
+        "summary": "Grafana 경보 보내기 (PUT)",
+        "description": "HTTP Method를 PUT으로 설정한 Grafana 연락처용입니다.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "production"
+            },
+            "example": "development",
+            "description": "경보나 메시지에 환경이 없을 때 쓸 환경 이름입니다."
+          },
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "example": true,
+            "description": "true이면 인증·검증·변환·경로 결정까지만 하고 저장·발송하지 않습니다. 결과로 저장될 내용과 경로를 돌려줍니다."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "alerts"
+                ],
+                "properties": {
+                  "groupKey": {
+                    "type": "string",
+                    "description": "같은 알림의 경보를 연결 사건으로 묶습니다."
+                  },
+                  "alerts": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "status",
+                        "startsAt"
+                      ],
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "firing",
+                            "resolved"
+                          ]
+                        },
+                        "labels": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "description": "alertname, severity, environment/env를 읽습니다."
+                        },
+                        "annotations": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "description": "summary, description, message 중 하나를 요약으로 씁니다."
+                        },
+                        "startsAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "endsAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "description": "resolved 경보에 필요합니다."
+                        },
+                        "generatorURL": {
+                          "type": "string"
+                        },
+                        "panelURL": {
+                          "type": "string"
+                        },
+                        "dashboardURL": {
+                          "type": "string"
+                        },
+                        "fingerprint": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "example": {
+                "groupKey": "{}:{alertname=\"HighLatency\"}",
+                "alerts": [
+                  {
+                    "status": "firing",
+                    "labels": {
+                      "alertname": "HighLatency",
+                      "severity": "critical"
+                    },
+                    "annotations": {
+                      "summary": "p99 latency above 2s"
+                    },
+                    "startsAt": "2026-11-08T01:00:00Z",
+                    "endsAt": "0001-01-01T00:00:00Z",
+                    "generatorURL": "http://prometheus:9090/graph",
+                    "fingerprint": "a1b2c3"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "사건 ID 목록. dry_run이면 각 경보의 변환 결과와 경로입니다.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "incidents": {
+                      "type": "array",
+                      "items": {}
+                    },
+                    "rejected": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "fingerprint": {
+                            "type": "string"
+                          },
+                          "error": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "토큰이 없거나 틀림",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "서비스가 정해지지 않은 정적 토큰",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "일부 경보 거부. 나머지는 처리됩니다.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "상태"
+        ],
+        "summary": "작업자 생존 확인",
+        "responses": {
+          "200": {
+            "description": "작업자 정상"
+          },
+          "503": {
+            "description": "작업자 멈춤"
+          }
+        }
+      }
+    },
+    "/health/delivery": {
+      "get": {
+        "tags": [
+          "상태"
+        ],
+        "summary": "알림 경로 확인",
+        "responses": {
+          "200": {
+            "description": "정상",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "영구 실패, 지연, Socket Mode 끊김 등",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/hooks/uptime-kuma": {
+      "post": {
+        "tags": [
+          "연동"
+        ],
+        "summary": "Uptime Kuma 알림 보내기",
+        "description": "Uptime Kuma webhook 알림(본문 형식 JSON)을 받습니다. DOWN은 사건을 열고, UP은 같은 모니터의 열린 사건을 해결합니다. PENDING, MAINTENANCE, 시험 알림은 아무것도 만들지 않습니다. 토큰은 추가 헤더 {\"Authorization\": \"Bearer <토큰>\"}로 보냅니다.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "production"
+            },
+            "example": "development",
+            "description": "경보나 메시지에 환경이 없을 때 쓸 환경 이름입니다."
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "warning"
+            },
+            "example": "critical",
+            "description": "Uptime Kuma에는 심각도가 없어 여기서 정합니다. critical은 P1, error는 P2, info는 P4이며 그 밖의 값은 P3입니다."
+          },
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "example": true,
+            "description": "true이면 인증·검증·변환·경로 결정까지만 하고 저장·발송하지 않습니다. 결과로 저장될 내용과 경로를 돌려줍니다."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "heartbeat": {
+                    "type": [
+                      "object",
+                      "null"
+                    ]
+                  },
+                  "monitor": {
+                    "type": [
+                      "object",
+                      "null"
+                    ]
+                  },
+                  "msg": {
+                    "type": "string"
+                  }
+                }
+              },
+              "example": {
+                "heartbeat": {
+                  "monitorID": 1,
+                  "status": 0,
+                  "time": "2026-11-08 13:59:30.903",
+                  "msg": "connect ECONNREFUSED",
+                  "important": true
+                },
+                "monitor": {
+                  "id": 1,
+                  "name": "checkout-api",
+                  "url": "https://checkout.example/health"
+                },
+                "msg": "[checkout-api] [🔴 Down] connect ECONNREFUSED"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "처리하지 않음. ignored에 이유(test notification, pending, maintenance, no open incident, duplicate 등)가 있습니다.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ignored": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "사건을 열거나 갱신하거나 해결했습니다. dry_run이면 200으로 변환 결과와 경로를 돌려줍니다.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "incident_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "필수 필드가 없거나 형식이 틀림",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "토큰이 없거나 틀림",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "서비스가 정해지지 않은 정적 토큰",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/hooks/sentry/{token}": {
+      "post": {
+        "tags": [
+          "연동"
+        ],
+        "summary": "Sentry 알림 보내기",
+        "description": "Sentry 내부 통합의 webhook을 받습니다. Sentry-Hook-Resource가 event_alert이면 이슈의 사건을 열고, issue이면서 action이 resolved이면 열린 사건을 해결합니다. 그 밖의 알림은 무시합니다. level이 fatal이면 P1, error는 P2, warning은 P3, info와 debug는 P4입니다.",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "클라이언트 토큰. Sentry 통합은 헤더를 추가할 수 없어 URL에 넣습니다."
+          },
+          {
+            "name": "Sentry-Hook-Resource",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "event_alert",
+                "issue"
+              ]
+            },
+            "example": "event_alert"
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "production"
+            },
+            "example": "development",
+            "description": "경보나 메시지에 환경이 없을 때 쓸 환경 이름입니다."
+          },
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "example": true,
+            "description": "true이면 인증·검증·변환·경로 결정까지만 하고 저장·발송하지 않습니다. 결과로 저장될 내용과 경로를 돌려줍니다."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "action": "triggered",
+                "data": {
+                  "event": {
+                    "event_id": "e4874d664c3540c1a32eab185f12c5ab",
+                    "issue_id": "1117540176",
+                    "title": "ReferenceError: heck is not defined",
+                    "culprit": "?(<anonymous>)",
+                    "level": "error",
+                    "datetime": "2019-08-19T21:06:17.677000Z",
+                    "web_url": "https://sentry.io/organizations/test-org/issues/1117540176/"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "처리하지 않음. ignored에 이유(test notification, pending, maintenance, no open incident, duplicate 등)가 있습니다.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ignored": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "사건을 열거나 갱신하거나 해결했습니다. dry_run이면 200으로 변환 결과와 경로를 돌려줍니다.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "incident_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "필수 필드가 없거나 형식이 틀림",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON이 아님",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "알 수 없거나 폐기된 토큰",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/hooks/datadog": {
+      "post": {
+        "tags": [
+          "연동"
+        ],
+        "summary": "Datadog 알림 보내기",
+        "description": "README의 Datadog webhook 템플릿으로 보낸 알림을 받습니다. cycle($ALERT_CYCLE_KEY)이 같은 알림은 한 사건이며, transition이 Recovered이면 해결합니다. priority($ALERT_PRIORITY)가 P1은 P1, P2는 P2, P4·P5는 P4이며, 비어 있으면 Warn 계열은 P3, 그 밖은 P2입니다.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "environment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "production"
+            },
+            "example": "development",
+            "description": "경보나 메시지에 환경이 없을 때 쓸 환경 이름입니다."
+          },
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "example": true,
+            "description": "true이면 인증·검증·변환·경로 결정까지만 하고 저장·발송하지 않습니다. 결과로 저장될 내용과 경로를 돌려줍니다."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "cycle",
+                  "transition",
+                  "date"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "cycle": {
+                    "type": "string"
+                  },
+                  "transition": {
+                    "type": "string"
+                  },
+                  "priority": {
+                    "type": "string"
+                  },
+                  "date": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "link": {
+                    "type": "string"
+                  }
+                }
+              },
+              "example": {
+                "id": "7781230",
+                "cycle": "7212345678901234567",
+                "transition": "Triggered",
+                "priority": "P1",
+                "date": "1794150000000",
+                "title": "[Triggered] checkout 5xx",
+                "link": "https://app.datadoghq.com/monitors/123"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "처리하지 않음. ignored에 이유(test notification, pending, maintenance, no open incident, duplicate 등)가 있습니다.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ignored": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "사건을 열거나 갱신하거나 해결했습니다. dry_run이면 200으로 변환 결과와 경로를 돌려줍니다.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "incident_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "필수 필드가 없거나 형식이 틀림",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "토큰이 없거나 틀림",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "서비스가 정해지지 않은 정적 토큰",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
