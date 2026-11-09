@@ -82,5 +82,12 @@
   "JSON이 아님": "Not JSON",
   "알 수 없거나 폐기된 토큰": "Unknown or revoked token",
   "Datadog 알림 보내기": "Send Datadog notifications",
-  "README의 Datadog webhook 템플릿으로 보낸 알림을 받습니다. cycle($ALERT_CYCLE_KEY)이 같은 알림은 한 사건이며, transition이 Recovered이면 해결합니다. priority($ALERT_PRIORITY)가 P1은 P1, P2는 P2, P4·P5는 P4이며, 비어 있으면 Warn 계열은 P3, 그 밖은 P2입니다.": "Receives notifications sent with the Datadog webhook template in the README. Notifications with the same cycle ($ALERT_CYCLE_KEY) form one incident, and transition Recovered resolves it. priority ($ALERT_PRIORITY) P1 is P1, P2 is P2, and P4 and P5 are P4. Without a priority, Warn transitions are P3 and others are P2."
+  "README의 Datadog webhook 템플릿으로 보낸 알림을 받습니다. cycle($ALERT_CYCLE_KEY)이 같은 알림은 한 사건이며, transition이 Recovered이면 해결합니다. priority($ALERT_PRIORITY)가 P1은 P1, P2는 P2, P4·P5는 P4이며, 비어 있으면 Warn 계열은 P3, 그 밖은 P2입니다.": "Receives notifications sent with the Datadog webhook template in the README. Notifications with the same cycle ($ALERT_CYCLE_KEY) form one incident, and transition Recovered resolves it. priority ($ALERT_PRIORITY) P1 is P1, P2 is P2, and P4 and P5 are P4. Without a priority, Warn transitions are P3 and others are P2.",
+  "Prometheus 경보 받기": "Receive Prometheus alerts",
+  "Prometheus의 alertmanager 설정에 noti-mesh를 지정하면 Alertmanager 없이 경보를 보냅니다. 경보 하나가 사건 하나가 됩니다. 다시 보낸 경보는 끝 시각만 갱신합니다. endsAt이 지나도록 다시 오지 않으면 해결로 처리합니다.": "Set noti-mesh as the Alertmanager in the Prometheus configuration to send alerts without Alertmanager. Each alert becomes one incident. A resent alert only updates its end time. If an alert does not arrive again before endsAt, the incident is resolved.",
+  "alertname, severity, environment/env를 읽습니다. 같은 라벨 묶음이 같은 경보입니다.": "The server reads alertname, severity, and environment/env. Alerts with the same label set are the same alert.",
+  "없으면 진행 중인 같은 경보의 시작 시각이나 받은 시각을 씁니다.": "If it is missing, the server uses the start of the same active alert or the receive time.",
+  "이 시각이 지났으면 해결입니다. 없으면 받은 시각에서 5분 뒤입니다.": "If this time has passed, the alert is resolved. If it is missing, the server uses 5 minutes after the receive time.",
+  "모든 경보를 받았습니다.": "The server accepted all alerts.",
+  "잘못된 경보 목록입니다. 나머지 경보는 받았습니다.": "The list of invalid alerts. The server accepted the other alerts."
 }

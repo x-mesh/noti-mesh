@@ -2888,3 +2888,116 @@ async fn api_reference_is_available_in_english() {
     );
     fixture.close().await;
 }
+
+#[tokio::test]
+async fn prometheus_posts_alerts_directly() {
+    let Some(fixture) = Fixture::with_app(grant_admins).await else {
+        return;
+    };
+    let router = &fixture.router;
+    let db = &fixture.app.db;
+    let (status, created) = api_request(
+        &fixture.admin_router(),
+        "/v1/admin/tokens",
+        ADMIN_TOKEN,
+        Some(json!({"name":"prometheus","service":"checkout"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let token = created["token"].as_str().unwrap();
+    let path = "/api/v2/alerts";
+    let starts = "2026-11-08T01:00:00.123556789Z";
+    let later =
+        |minutes: i64| (chrono::Utc::now() + chrono::Duration::minutes(minutes)).to_rfc3339();
+    let alert = |ends: String, summary: &str| json!({"labels":{"alertname":"HighLatency","severity":"critical","env":"dev","instance":"api-1"},"annotations":{"summary":summary},"startsAt":starts,"endsAt":ends,"generatorURL":"http://prometheus:9090/graph?g0.expr=up"});
+    let incidents = || async {
+        sqlx::query_as::<_, (String, String, String)>(
+            "SELECT id,state,incident_key FROM incidents ORDER BY created_at",
+        )
+        .fetch_all(db)
+        .await
+        .unwrap()
+    };
+
+    let (status, body) = api_request(
+        router,
+        path,
+        token,
+        Some(json!([alert(later(4), "p99 2.1s"), {"labels":{}}])),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(
+        body["rejected"][0]["error"],
+        "an alert needs at least one label"
+    );
+    let opened = incidents().await;
+    assert_eq!(opened.len(), 1);
+    assert_eq!(opened[0].1, "open");
+    assert!(opened[0].2.starts_with("HighLatency/"));
+
+    // Prometheus resends the active alert with a later end time; it stays one incident.
+    let (status, body) = api_request(
+        router,
+        path,
+        token,
+        Some(json!([alert(later(8), "p99 2.4s")])),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(incidents().await.len(), 1);
+    let (minutes,): (i64,) = sqlx::query_as(
+        "SELECT (extract(epoch FROM ends_at-now())/60)::bigint FROM prometheus_alerts",
+    )
+    .fetch_one(db)
+    .await
+    .unwrap();
+    assert_eq!(minutes, 8);
+
+    let resolved_at = later(-1);
+    for _ in 0..2 {
+        let (status, body) = api_request(
+            router,
+            path,
+            token,
+            Some(json!([alert(resolved_at.clone(), "p99 2.4s")])),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+    let resolved = incidents().await;
+    assert_eq!((resolved.len(), resolved[0].1.as_str()), (1, "resolved"));
+
+    // The same alert firing again after resolution opens a new incident.
+    let (status, body) = api_request(
+        router,
+        path,
+        token,
+        Some(json!([alert(later(4), "p99 3s")])),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let revived = incidents().await;
+    assert_eq!(revived.len(), 2);
+    assert_eq!(revived[1].1, "open");
+    assert!(revived[1].2.ends_with("/r1"), "{}", revived[1].2);
+
+    // When Prometheus stops sending, the alert resolves after its end time.
+    crate::prometheus::expire(&fixture.app).await.unwrap();
+    assert_eq!(incidents().await[1].1, "open");
+    sqlx::query("UPDATE prometheus_alerts SET ends_at=now()-interval '1 second'")
+        .execute(db)
+        .await
+        .unwrap();
+    crate::prometheus::expire(&fixture.app).await.unwrap();
+    assert_eq!(incidents().await[1].1, "resolved");
+    let (open,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM prometheus_alerts WHERE resolved_at IS NULL")
+            .fetch_one(db)
+            .await
+            .unwrap();
+    assert_eq!(open, 0);
+
+    let (status, _) = api_request(router, path, "wrong-token", Some(json!([]))).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}

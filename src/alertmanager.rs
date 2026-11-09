@@ -97,7 +97,7 @@ pub(crate) fn link(url: &str) -> Option<String> {
     .then(|| url.to_owned())
 }
 
-fn fingerprint(alert: &Value) -> String {
+pub(crate) fn fingerprint(alert: &Value) -> String {
     if let Some(value) = alert["fingerprint"].as_str().filter(|v| !v.is_empty()) {
         return value.chars().take(64).collect();
     }

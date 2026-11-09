@@ -6,6 +6,7 @@ mod health;
 mod messages;
 mod monitors;
 mod policy;
+mod prometheus;
 mod report;
 mod silence;
 mod slack;
@@ -614,6 +615,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/v1/messages/{id}", get(messages::status))
         .route("/hooks/slack/{token}", post(slack_hooks::ingest))
         .route("/hooks/alertmanager", post(alertmanager::ingest))
+        .route("/api/v2/alerts", post(prometheus::ingest))
         .route("/hooks/uptime-kuma", post(monitors::uptime_kuma))
         .route("/hooks/sentry/{token}", post(monitors::sentry))
         .route("/hooks/datadog", post(monitors::datadog))

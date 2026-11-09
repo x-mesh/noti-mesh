@@ -301,6 +301,7 @@ pub async fn worker(app: Arc<App>) {
 pub(crate) async fn tick(app: &App) -> Result<bool, Error> {
     sqlx::query("UPDATE outbox SET sent_at=now() WHERE slack_disabled AND sent_at IS NULL AND due_at<=now()").execute(&app.db).await?;
     crate::silence::release(app).await?;
+    crate::prometheus::expire(app).await?;
     schedule(app).await?;
     let (urgent,):(bool,)=sqlx::query_as("SELECT EXISTS(SELECT 1 FROM outbox o JOIN incidents i ON i.id=o.incident_id WHERE o.sent_at IS NULL AND o.failed_at IS NULL AND o.due_at<=now() AND (o.lease_until IS NULL OR o.lease_until<now()) AND (i.severity<=2 OR i.state='resolved'))").fetch_one(&app.db).await?;
     if urgent {

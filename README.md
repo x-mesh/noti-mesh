@@ -10,6 +10,7 @@ Inputs:
 
 - The noti-mesh API: `POST /v1/events` for incidents and `POST /v1/messages` for ordinary messages.
 - Slack incoming webhook payloads, so that existing senders change only the URL.
+- Alerts from Prometheus through the Alertmanager API (`POST /api/v2/alerts`), so Prometheus needs no Alertmanager.
 - Webhooks from Prometheus Alertmanager, Grafana, Uptime Kuma, Sentry, and Datadog.
 
 Outputs:
@@ -248,6 +249,38 @@ The server keeps the original payload with the message. It does not copy the lay
 
 The responses match Slack. A stored message returns `200` with the body `ok`. An unknown or revoked token returns `404 no_service`. A payload that is not a JSON object returns `400 invalid_payload`. A payload without text returns `400 no_text`. The server also accepts the form body `payload=<json>`.
 
+## Receive alerts from Prometheus
+
+Prometheus can send alerts to noti-mesh directly. noti-mesh accepts the Alertmanager API that Prometheus uses, so you do not need Alertmanager. Create a client token for the service in the admin UI, then set noti-mesh as the Alertmanager of Prometheus:
+
+```yaml
+global:
+  external_labels:
+    env: production
+alerting:
+  alertmanagers:
+    - api_version: v2
+      authorization:
+        credentials: <client token>
+      static_configs:
+        - targets: ["noti-mesh:8080"]
+```
+
+Prometheus sends each active alert again at each resend interval, with a new end time (`endsAt`). The server uses these rules:
+
+- Each alert opens one incident for the service of the token. Alerts with the same labels are the same alert.
+- A resent alert only updates the end time. It does not create a new incident or a new message.
+- If the end time is in the past, the alert is resolved. Prometheus sends this when the rule stops firing.
+- If no resend arrives before the end time, the server resolves the incident. This occurs when Prometheus stops or cannot reach noti-mesh.
+- If an alert has no end time, the server uses 5 minutes after it receives the alert.
+- If the same alert fires again after it resolves, it opens a new incident.
+
+The `severity`, `environment`, and `env` labels and the annotations work as for Alertmanager webhooks below. Prometheus adds `external_labels` to each alert, so `env` in `external_labels` sets the environment.
+
+The response is `200` when the server accepts all alerts. If an alert has no labels, the server rejects that alert and returns `400` with the reason. It still accepts the other alerts.
+
+noti-mesh does not group or inhibit alerts yet. Each alert opens its own incident.
+
 ## Receive Alertmanager alerts
 
 Alertmanager can send alerts to noti-mesh as incident events. Create a client token for the service in the admin UI, then add a webhook receiver:
@@ -365,6 +398,7 @@ POST /v1/events
 POST /v1/messages
 GET /v1/messages/{id}
 POST /hooks/slack/{token}
+POST /api/v2/alerts
 POST /hooks/alertmanager
 POST|PUT /hooks/grafana
 POST /hooks/uptime-kuma

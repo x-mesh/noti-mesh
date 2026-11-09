@@ -87,6 +87,7 @@ impl Fixture {
             .route("/v1/messages/{id}", get(messages::status))
             .route("/hooks/slack/{token}", post(crate::slack_hooks::ingest))
             .route("/hooks/alertmanager", post(crate::alertmanager::ingest))
+            .route("/api/v2/alerts", post(crate::prometheus::ingest))
             .route("/hooks/uptime-kuma", post(crate::monitors::uptime_kuma))
             .route("/hooks/sentry/{token}", post(crate::monitors::sentry))
             .route("/hooks/datadog", post(crate::monitors::datadog))
