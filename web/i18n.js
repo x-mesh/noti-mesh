@@ -136,6 +136,8 @@
     '상세': 'Detail', '경로': 'Path', '중복': 'Duplicates', '최근': 'Latest', '발생': 'Occurred', '접수': 'Received', '서버': 'Server', '종료': 'Ended',
     '긴급': 'Critical', '높음': 'High', '보통': 'Normal', '낮음': 'Low', '재시도': 'Retries', '페이지': 'Page', '사건 · noti-mesh': 'Incidents · noti-mesh', '운': 'O', 'Slack 채널 · 예정': 'Slack channel · scheduled',
     '요청을 처리하지 못했어요.': 'Could not process the request.', 'CSV를 만들지 못했어요.': 'Could not create the CSV.', '회고 초안을 만들지 못했어요.': 'Could not create the draft.',
+    '담당 대기 먼저 · 중요도 · 오래된 순': 'Unassigned first · priority · oldest first',
+    '목록에서 사건을 고르면 담당자 지정과 이벤트·발송 이력이 여기에 표시됩니다.': 'Select an incident to assign an owner and see its events and deliveries here.',
   };
   const TITLES = { '사건': 'Incidents', '일반 메시지': 'Messages', '발송 현황': 'Deliveries', '클라이언트 토큰': 'Client tokens', '점검 무음': 'Silences', '담당 그룹·정책': 'Groups & policy' };
   // Whole-node shapes with variable parts; the captured parts are kept as they are.

@@ -1781,7 +1781,7 @@
           "연동"
         ],
         "summary": "Prometheus 경보 받기",
-        "description": "Prometheus의 alertmanager 설정에 noti-mesh를 지정하면 Alertmanager 없이 경보를 보냅니다. 경보 하나가 사건 하나가 됩니다. 다시 보낸 경보는 끝 시각만 갱신합니다. endsAt이 지나도록 다시 오지 않으면 해결로 처리합니다.",
+        "description": "Prometheus의 alertmanager 설정에 noti-mesh를 지정하면 Alertmanager 없이 경보를 보냅니다. group_by 라벨 값과 환경이 같은 경보는 한 사건이 됩니다(기본 alertname). 다시 보낸 경보는 끝 시각만 갱신합니다. endsAt이 지나도록 다시 오지 않으면 그 경보는 해결되고, 마지막 경보가 해결되면 사건이 해결됩니다.",
         "security": [
           {
             "bearerAuth": []

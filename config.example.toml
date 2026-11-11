@@ -32,3 +32,8 @@ priority_floor = 2
 enabled = false
 model = ""
 api_url = "https://api.openai.com/v1/responses"
+
+# Alerts that Prometheus sends to POST /api/v2/alerts with the same values of these labels
+# (and the same environment) become one incident. Use ["..."] for one incident per alert.
+[prometheus]
+group_by = ["alertname"]

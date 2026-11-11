@@ -14,7 +14,7 @@ timing: { stepTimeoutMs: 30000, pointerSteps: 16, pointerStepMs: 30 }
 steps:
   - script: scripts/prepare.js
   - goto: { screen: admin, url: "http://127.0.0.1:18080/admin" }
-    expect: { screen: admin, selector: ".incident-title" }
+    expect: { screen: admin, selector: ".incident-row-title" }
   - script: scripts/hide-banner.js
   - caption: "Incidents and messages from every source, in one place"
   - click: { screen: admin, target: "[data-view=incidents]" }
@@ -26,7 +26,7 @@ steps:
   - script: scripts/snap.js
   - wait: 2200
   - caption: "Every event and delivery stays with the incident"
-  - click: { screen: admin, target: "#incident-view tbody tr:first-child .incident-title" }
+  - click: { screen: admin, target: "#incident-rows .incident-row" }
     expect: { screen: admin, selector: "#assign-form" }
     retry: 2
   - script: scripts/caption-on-top.js
@@ -43,7 +43,6 @@ steps:
     retry: 2
   - script: scripts/caption-on-top.js
   - wait: 1800
-  - click: { screen: admin, target: "#detail-close" }
   - wait: 1600
   - caption: "A recovery event resolves it"
   - script: scripts/recover.js
