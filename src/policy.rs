@@ -20,6 +20,24 @@ pub struct Config {
     pub ai: Ai,
     #[serde(default)]
     pub channels: Channels,
+    #[serde(default)]
+    pub prometheus: Prometheus,
+}
+#[derive(Clone, Deserialize)]
+pub struct Prometheus {
+    /// Labels whose values put alerts from `POST /api/v2/alerts` into one incident; `...` means all labels.
+    #[serde(default = "default_group_by")]
+    pub group_by: Vec<String>,
+}
+impl Default for Prometheus {
+    fn default() -> Self {
+        Self {
+            group_by: default_group_by(),
+        }
+    }
+}
+fn default_group_by() -> Vec<String> {
+    vec!["alertname".into()]
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -162,6 +180,15 @@ impl Config {
             .any(|v| *v <= 0)
         {
             return Err("timing intervals must be positive".into());
+        }
+        if self.prometheus.group_by.is_empty()
+            || self
+                .prometheus
+                .group_by
+                .iter()
+                .any(|label| label.trim().is_empty())
+        {
+            return Err("prometheus.group_by needs at least one label name".into());
         }
         if self
             .admins

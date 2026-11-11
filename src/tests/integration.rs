@@ -2980,7 +2980,7 @@ async fn prometheus_posts_alerts_directly() {
     let revived = incidents().await;
     assert_eq!(revived.len(), 2);
     assert_eq!(revived[1].1, "open");
-    assert!(revived[1].2.ends_with("/r1"), "{}", revived[1].2);
+    assert!(revived[1].2.ends_with("/g1"), "{}", revived[1].2);
 
     // When Prometheus stops sending, the alert resolves after its end time.
     crate::prometheus::expire(&fixture.app).await.unwrap();
@@ -3000,4 +3000,119 @@ async fn prometheus_posts_alerts_directly() {
 
     let (status, _) = api_request(router, path, "wrong-token", Some(json!([]))).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn prometheus_alerts_with_the_same_group_labels_share_an_incident() {
+    let Some(fixture) = Fixture::with_app(grant_admins).await else {
+        return;
+    };
+    let router = &fixture.router;
+    let db = &fixture.app.db;
+    let (_, created) = api_request(
+        &fixture.admin_router(),
+        "/v1/admin/tokens",
+        ADMIN_TOKEN,
+        Some(json!({"name":"prometheus","service":"checkout"})),
+    )
+    .await;
+    let token = created["token"].as_str().unwrap();
+    let path = "/api/v2/alerts";
+    let soon = (chrono::Utc::now() + chrono::Duration::minutes(4)).to_rfc3339();
+    let past = (chrono::Utc::now() - chrono::Duration::minutes(1)).to_rfc3339();
+    let alert = |name: &str, instance: &str, severity: &str, starts: &str, ends: &str| json!({"labels":{"alertname":name,"instance":instance,"severity":severity},"annotations":{"summary":format!("{name} on {instance}")},"startsAt":starts,"endsAt":ends});
+    let incidents = || async {
+        sqlx::query_as::<_, (String, String, i16, i64)>(
+            "SELECT incident_key,state,severity,count FROM incidents ORDER BY created_at",
+        )
+        .fetch_all(db)
+        .await
+        .unwrap()
+    };
+
+    let a = alert("NodeDown", "a", "warning", "2026-11-08T01:00:10Z", &soon);
+    let (status, body) = api_request(router, path, token, Some(json!([a]))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    // A member that started earlier still joins, and its critical severity raises the incident.
+    let b = alert("NodeDown", "b", "critical", "2026-11-08T01:00:00Z", &soon);
+    let other = alert("DiskFull", "a", "warning", "2026-11-08T01:00:00Z", &soon);
+    let (status, body) = api_request(router, path, token, Some(json!([b, other]))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let open = incidents().await;
+    assert_eq!(open.len(), 2, "{open:?}");
+    let node = open.iter().find(|i| i.0.starts_with("NodeDown/")).unwrap();
+    assert_eq!((node.1.as_str(), node.2, node.3), ("open", 1, 2));
+    assert!(node.0.ends_with("/g0"), "{}", node.0);
+
+    let a_resolved = alert("NodeDown", "a", "warning", "2026-11-08T01:00:10Z", &past);
+    api_request(router, path, token, Some(json!([a_resolved]))).await;
+    let node = incidents()
+        .await
+        .into_iter()
+        .find(|i| i.0.starts_with("NodeDown/"))
+        .unwrap();
+    assert_eq!(node.1, "open");
+
+    // When Prometheus stops, the last members expire and each group resolves once.
+    sqlx::query(
+        "UPDATE prometheus_alerts SET ends_at=now()-interval '1 second' WHERE resolved_at IS NULL",
+    )
+    .execute(db)
+    .await
+    .unwrap();
+    crate::prometheus::expire(&fixture.app).await.unwrap();
+    let closed = incidents().await;
+    assert!(closed.iter().all(|i| i.1 == "resolved"), "{closed:?}");
+    let (resolutions,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM events WHERE (payload->>'recovered')::boolean")
+            .fetch_one(db)
+            .await
+            .unwrap();
+    assert_eq!(resolutions, 2);
+
+    // A new member after the group resolved opens the next incident of the group.
+    let c = alert("NodeDown", "c", "warning", "2026-11-08T02:00:00Z", &soon);
+    api_request(router, path, token, Some(json!([c]))).await;
+    let reopened = incidents().await;
+    assert_eq!(reopened.len(), 3);
+    assert!(reopened[2].0.starts_with("NodeDown/") && reopened[2].0.ends_with("/g1"));
+    assert_eq!(reopened[2].1, "open");
+}
+
+#[tokio::test]
+async fn prometheus_group_by_all_labels_keeps_one_incident_per_alert() {
+    let Some(fixture) = Fixture::with_app(|app| {
+        grant_admins(app);
+        app.config.prometheus.group_by = vec!["...".into()];
+    })
+    .await
+    else {
+        return;
+    };
+    let (_, created) = api_request(
+        &fixture.admin_router(),
+        "/v1/admin/tokens",
+        ADMIN_TOKEN,
+        Some(json!({"name":"prometheus","service":"checkout"})),
+    )
+    .await;
+    let token = created["token"].as_str().unwrap();
+    let soon = (chrono::Utc::now() + chrono::Duration::minutes(4)).to_rfc3339();
+    let alerts: Vec<Value> = ["a", "b"]
+        .iter()
+        .map(|instance| json!({"labels":{"alertname":"NodeDown","instance":instance},"startsAt":"2026-11-08T01:00:00Z","endsAt":soon}))
+        .collect();
+    let (status, body) = api_request(
+        &fixture.router,
+        "/api/v2/alerts",
+        token,
+        Some(json!(alerts)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (count,): (i64,) = sqlx::query_as("SELECT count(*) FROM incidents")
+        .fetch_one(&fixture.app.db)
+        .await
+        .unwrap();
+    assert_eq!(count, 2);
 }

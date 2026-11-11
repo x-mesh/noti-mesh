@@ -268,18 +268,27 @@ alerting:
 
 Prometheus sends each active alert again at each resend interval, with a new end time (`endsAt`). The server uses these rules:
 
-- Each alert opens one incident for the service of the token. Alerts with the same labels are the same alert.
-- A resent alert only updates the end time. It does not create a new incident or a new message.
+- Alerts with the same labels are the same alert. A resent alert only updates the end time. It does not create a new incident or a new message.
+- Alerts with the same values of the `group_by` labels and the same environment share one incident. The default is `group_by = ["alertname"]`, so all `NodeDown` alerts of a service share one incident.
+- Each alert that joins an open incident increases the event count of the incident. If the new alert has a higher priority, the incident takes that priority and the server notifies again.
 - If the end time is in the past, the alert is resolved. Prometheus sends this when the rule stops firing.
-- If no resend arrives before the end time, the server resolves the incident. This occurs when Prometheus stops or cannot reach noti-mesh.
+- If no resend arrives before the end time, the alert is resolved. This occurs when Prometheus stops or cannot reach noti-mesh.
+- The incident resolves when its last active alert resolves.
 - If an alert has no end time, the server uses 5 minutes after it receives the alert.
-- If the same alert fires again after it resolves, it opens a new incident.
+- If an alert of the group fires after the incident resolves, it opens a new incident.
+
+Set the grouping labels in the configuration file. Use `["..."]` for one incident per alert:
+
+```toml
+[prometheus]
+group_by = ["alertname", "cluster"]
+```
 
 The `severity`, `environment`, and `env` labels and the annotations work as for Alertmanager webhooks below. Prometheus adds `external_labels` to each alert, so `env` in `external_labels` sets the environment.
 
 The response is `200` when the server accepts all alerts. If an alert has no labels, the server rejects that alert and returns `400` with the reason. It still accepts the other alerts.
 
-noti-mesh does not group or inhibit alerts yet. Each alert opens its own incident.
+The server sends the first message of an incident immediately. It does not wait for more alerts of the group, as `group_wait` in Alertmanager does. The incident message shows the event count, and the count increases when alerts join. noti-mesh does not inhibit alerts yet.
 
 ## Receive Alertmanager alerts
 
