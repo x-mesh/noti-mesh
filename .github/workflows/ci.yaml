@@ -23,7 +23,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npx --yes github:x-mesh/jstyle#v0.41.1 check web
+      - run: npx --yes github:x-mesh/jstyle#v0.42.0 check web
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
