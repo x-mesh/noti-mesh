@@ -1,4 +1,4 @@
-.PHONY: dev dev-mock dev-mock-down dev-down down dev-fail-slack send event scenarios
+.PHONY: dev dev-mock dev-mock-down dev-down down dev-fail-slack send event scenarios style-check
 
 DEV_PORT ?= 8080
 export DEV_PORT
@@ -32,6 +32,10 @@ down:
 
 dev-fail-slack:
 	$(MOCK_COMPOSE) exec -T slack python -c 'import urllib.request; urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:8090/__dev/fail-next",data=b"{}",headers={"Content-Type":"application/json"}))'
+
+# Fails on kit token overrides, colors outside the kit tokens and jk classes the kit does not define. CI runs the same check from a pinned jstyle tag.
+style-check:
+	jstyle check web
 
 send:
 	@python3 scripts/send_test.py
