@@ -3116,3 +3116,106 @@ async fn prometheus_group_by_all_labels_keeps_one_incident_per_alert() {
         .unwrap();
     assert_eq!(count, 2);
 }
+
+#[tokio::test]
+async fn prometheus_alerts_stored_before_grouping_still_resolve_their_incident() {
+    let Some(fixture) = Fixture::with_app(grant_admins).await else {
+        return;
+    };
+    let router = &fixture.router;
+    let db = &fixture.app.db;
+    let (_, created) = api_request(
+        &fixture.admin_router(),
+        "/v1/admin/tokens",
+        ADMIN_TOKEN,
+        Some(json!({"name":"prometheus","service":"checkout"})),
+    )
+    .await;
+    let token = created["token"].as_str().unwrap();
+    let path = "/api/v2/alerts";
+    let starts = "2026-11-08T01:00:00Z";
+    let later =
+        |minutes: i64| (chrono::Utc::now() + chrono::Duration::minutes(minutes)).to_rfc3339();
+    let labels = |instance: &str| json!({"alertname":"NodeDown","instance":instance});
+    let alert = |instance: &str, ends: String| json!({"labels":labels(instance),"startsAt":starts,"endsAt":ends});
+    // Store what migration 021 leaves for alerts that were active before it:
+    // no group, and one incident per alert keyed like the Alertmanager webhook.
+    let source = format!("client:{}", created["id"].as_str().unwrap());
+    for instance in ["a", "b"] {
+        let fingerprint = crate::alertmanager::fingerprint(&json!({"labels":labels(instance)}));
+        sqlx::query("INSERT INTO prometheus_alerts(source,service,fingerprint,starts_at,ends_at,labels,annotations) VALUES($1,'checkout',$2,$3::timestamptz,$4::timestamptz,$5,'{}')")
+            .bind(&source)
+            .bind(&fingerprint)
+            .bind(starts)
+            .bind(later(4))
+            .bind(labels(instance))
+            .execute(db)
+            .await
+            .unwrap();
+        let firing =
+            json!({"status":"firing","labels":labels(instance),"annotations":{},"startsAt":starts});
+        let event =
+            crate::alertmanager::to_event(&firing, &fingerprint, None, "checkout", "production")
+                .unwrap();
+        let (status, _) = crate::accept_event(&fixture.app, source.clone(), event, false)
+            .await
+            .unwrap();
+        assert!(status.is_success(), "{status}");
+    }
+    let states = || async {
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT incident_key,state FROM incidents ORDER BY incident_key",
+        )
+        .fetch_all(db)
+        .await
+        .unwrap()
+    };
+    assert_eq!(states().await.len(), 2);
+
+    // Prometheus resends both active alerts after the upgrade.
+    let (status, body) = api_request(
+        router,
+        path,
+        token,
+        Some(json!([alert("a", later(8)), alert("b", later(8))])),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (ungrouped,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM prometheus_alerts WHERE group_hash IS NULL")
+            .fetch_one(db)
+            .await
+            .unwrap();
+    assert_eq!(ungrouped, 2);
+
+    // One resolves through a resend, the other through the end time.
+    let (status, body) =
+        api_request(router, path, token, Some(json!([alert("a", later(-1))]))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    sqlx::query(
+        "UPDATE prometheus_alerts SET ends_at=now()-interval '1 second' WHERE resolved_at IS NULL",
+    )
+    .execute(db)
+    .await
+    .unwrap();
+    crate::prometheus::expire(&fixture.app).await.unwrap();
+    let closed = states().await;
+    assert_eq!(closed.len(), 2, "{closed:?}");
+    assert!(
+        closed.iter().all(|(_, state)| state == "resolved"),
+        "{closed:?}"
+    );
+
+    // Firing again after it resolved, a stored alert joins a group like any new alert.
+    let (status, body) =
+        api_request(router, path, token, Some(json!([alert("a", later(4))]))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let reopened = states().await;
+    assert_eq!(reopened.len(), 3, "{reopened:?}");
+    assert!(
+        reopened
+            .iter()
+            .any(|(key, state)| key.ends_with("/g0") && state == "open"),
+        "{reopened:?}"
+    );
+}

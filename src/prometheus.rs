@@ -144,11 +144,10 @@ async fn receive(
     let was_resolved: bool = row.get("resolved");
     let grouped = row.get::<Option<String>, _>("group_hash").is_some();
     // An alert resolved by the timer that comes back with the same start counts as a new alert.
-    let next = if was_resolved && !resolved {
-        generation + 1
-    } else {
-        generation
-    };
+    let rejoins = was_resolved && !resolved;
+    let next = if rejoins { generation + 1 } else { generation };
+    // An alert stored before grouping keeps its own incident until it fires again and joins a group.
+    let stored_group = (grouped || rejoins).then_some(&group_hash);
     sqlx::query("UPDATE prometheus_alerts SET ends_at=CASE WHEN resolved_at IS NOT NULL AND $5 THEN ends_at ELSE $4::timestamptz END,labels=$6,annotations=$7,generator_url=$8,generation=$9,resolved_at=CASE WHEN $5 THEN coalesce(resolved_at,$4::timestamptz) END,group_hash=$10,updated_at=now() WHERE source=$1 AND fingerprint=$2 AND starts_at=$3::timestamptz")
         .bind(source)
         .bind(&alert.fingerprint)
@@ -159,7 +158,7 @@ async fn receive(
         .bind(&alert.annotations)
         .bind(&alert.generator_url)
         .bind(next)
-        .bind(&group_hash)
+        .bind(stored_group)
         .execute(&mut *tx)
         .await
         .map_err(db_error)?;
